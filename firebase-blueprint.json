@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Private user information and role",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["voter", "admin"] },
+        "votedElections": { "type": "array", "items": { "type": "string" } },
+        "age": { "type": "number" },
+        "classGroup": { "type": "string" },
+        "gender": { "type": "string" }
+      },
+      "required": ["email", "displayName", "role"]
+    },
+    "Election": {
+      "title": "Election",
+      "description": "Election details and candidate list",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["upcoming", "active", "completed"] },
+        "totalVotes": { "type": "number" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "bio": { "type": "string" },
+              "photoUrl": { "type": "string" },
+              "votesCount": { "type": "number" }
+            }
+          }
+        }
+      },
+      "required": ["title", "status", "startDate", "endDate"]
+    },
+    "VoteRecord": {
+      "title": "Vote Record",
+      "description": "Proof that a user has voted in an election",
+      "type": "object",
+      "properties": {
+        "voterId": { "type": "string" },
+        "electionId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["voterId", "electionId", "timestamp"]
+    },
+    "AnonymousVote": {
+      "title": "Anonymous Vote",
+      "description": "Details of a single vote without voter identity",
+      "type": "object",
+      "properties": {
+        "electionId": { "type": "string" },
+        "candidateId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["electionId", "candidateId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/elections/{electionId}": {
+      "schema": "Election",
+      "description": "Election definitions"
+    },
+    "/voteRecords/{recordId}": {
+      "schema": "VoteRecord",
+      "description": "Public (but filtered) or Private records of who voted"
+    },
+    "/anonymousVotes/{voteId}": {
+      "schema": "AnonymousVote",
+      "description": "Individual votes for results tracking"
+    }
+  }
+}
