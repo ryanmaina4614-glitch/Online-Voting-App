@@ -14,7 +14,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'ryanmaina4614@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+    function isManager() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager';
+    }
+    function getUserInstitution() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.institutionId;
     }
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
@@ -31,34 +40,53 @@ service cloud.firestore {
       function isValidUser(data) {
         return data.email is string && data.email.size() < 256 &&
                data.displayName is string && data.displayName.size() < 128 &&
-               data.role in ['voter', 'admin'] &&
+               data.role in ['voter', 'admin', 'manager'] &&
                data.votedElections is list &&
-               (!('age' in data) || data.age is number) &&
+               data.institutionId is string && data.institutionId.size() <= 64 &&
+               (!('studentId' in data) || (data.studentId is string && data.studentId.size() <= 64)) &&
+               (!('age' in data) || (data.age is number && data.age >= 0)) &&
                (!('classGroup' in data) || (data.classGroup is string && data.classGroup.size() < 100)) &&
-               (!('gender' in data) || (data.gender is string && data.gender.size() < 50));
+               (!('gender' in data) || (data.gender is string && data.gender in ['male', 'female', 'other', ''])) &&
+               (!('passportPhotoUrl' in data) || (data.passportPhotoUrl is string && data.passportPhotoUrl.size() < 2048));
       }
       
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().role == 'voter';
-      allow update: if isOwner(userId) && isValidUser(incoming()) && 
-                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'votedElections']);
+      allow create: if isOwner(userId) && isValidUser(incoming()) && 
+                    (incoming().role == 'voter' || incoming().role == 'manager' || (incoming().role == 'admin' && request.auth.token.email == 'ryanmaina4614@gmail.com'));
+      allow update: if (isAdmin() && isValidUser(incoming())) ||
+                    (isOwner(userId) && isValidUser(incoming()) && 
+                     incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'votedElections', 'age', 'gender', 'classGroup', 'studentId', 'passportPhotoUrl', 'institutionId', 'role']) &&
+                     (existing().get('institutionId', '') == '' || existing().get('institutionId', '') == 'default' || incoming().institutionId == existing().get('institutionId', '')) &&
+                     (existing().get('role', '') == '' || incoming().role == existing().get('role', '')));
     }
 
     // 2. Elections Collection
     match /elections/{electionId} {
       function isValidElection(data) {
-        return data.title is string && data.title.size() > 0 &&
-               data.status in ['upcoming', 'active', 'completed'] &&
-               data.candidates is list &&
-               data.totalVotes is number;
-      }
-      
-      allow read: if isSignedIn();
-      allow create: if isAdmin() && isValidElection(incoming());
-      allow update: if (isAdmin() && isValidElection(incoming())) ||
-                    (isSignedIn() && isValidElection(incoming()) && 
-                     incoming().diff(existing()).affectedKeys().hasOnly(['candidates', 'totalVotes']));
+      return data.title is string && data.title.size() > 0 &&
+             (!('institutionId' in data) || (data.institutionId is string && data.institutionId.size() <= 64)) &&
+             (!('status' in data) || data.status in ['upcoming', 'active', 'completed']) &&
+             (!('description' in data) || (data.description is string && data.description.size() < 2000)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 1000)) &&
+             (!('startDate' in data) || data.startDate is string) &&
+             (!('endDate' in data) || data.endDate is string) &&
+             (!('candidates' in data) || data.candidates is list) &&
+             (!('totalVotes' in data) || data.totalVotes is number) &&
+             (!('createdAt' in data) || data.createdAt is string || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is string || data.updatedAt is timestamp);
+    }
+    
+    allow read: if isAdmin() || (isSignedIn() && existing().institutionId == getUserInstitution());
+    allow create: if (isAdmin() || (isManager() && incoming().institutionId == getUserInstitution())) && isValidElection(incoming());
+    allow update: if (isAdmin() && isValidElection(incoming())) ||
+                  (isManager() && existing().institutionId == getUserInstitution() && 
+                   incoming().institutionId == existing().institutionId &&
+                   isValidElection(incoming())) ||
+                  (isSignedIn() && existing().institutionId == getUserInstitution() && 
+                   isValidElection(incoming()) && 
+                   incoming().diff(existing()).affectedKeys().hasOnly(['candidates', 'totalVotes', 'updatedAt']));
+    allow delete: if isAdmin() || (isManager() && existing().institutionId == getUserInstitution());
     }
 
     // 3. Vote Records (Relational Sync)
@@ -73,7 +101,8 @@ service cloud.firestore {
       allow get: if isOwner(existing().voterId) || isAdmin();
       allow list: if isAdmin() || (isSignedIn() && resource.data.voterId == request.auth.uid);
       allow create: if isSignedIn() && isValidRecord(incoming()) && 
-                    !exists(/databases/$(database)/documents/voteRecords/$(incoming().voterId + '_' + incoming().electionId));
+                    !exists(/databases/$(database)/documents/voteRecords/$(incoming().voterId + '_' + incoming().electionId)) &&
+                    get(/databases/$(database)/documents/elections/$(incoming().electionId)).data.institutionId == getUserInstitution();
     }
 
     // 4. Anonymous Votes
@@ -85,12 +114,14 @@ service cloud.firestore {
       }
       
       allow read: if isAdmin();
-      allow create: if isSignedIn() && isValidVote(incoming());
+      allow create: if isSignedIn() && isValidVote(incoming()) && 
+                    get(/databases/$(database)/documents/elections/$(incoming().electionId)).data.institutionId == getUserInstitution();
     }
     
     // 5. Admins Collection
     match /admins/{userId} {
       allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
   }
 }

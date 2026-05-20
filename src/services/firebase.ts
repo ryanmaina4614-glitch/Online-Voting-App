@@ -20,6 +20,7 @@ import {
 import { 
   getAuth, 
   signInWithPopup, 
+  linkWithPopup,
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut,
@@ -50,7 +51,8 @@ export async function getFirebase() {
       const configModule = await import('../../firebase-applet-config.json');
       const firebaseConfig = configModule.default;
       const app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
+      const dbId = (firebaseConfig as any).firestoreDatabaseId;
+      db = dbId ? getFirestore(app, dbId) : getFirestore(app);
       auth = getAuth(app);
       storage = getStorage(app);
     } catch (error) {
@@ -60,68 +62,205 @@ export async function getFirebase() {
   return { db, auth, storage };
 }
 
+// Token caching
+let cachedAccessToken: string | null = null;
+
+export function getCachedAccessToken(): string | null {
+  return cachedAccessToken;
+}
+
+export function setCachedAccessToken(token: string | null) {
+  cachedAccessToken = token;
+}
+
+// Helper to identify offline/network errors
+export function isOfflineError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  const lowerMsg = msg.toLowerCase();
+  return (
+    lowerMsg.includes('offline') ||
+    lowerMsg.includes('client is offline') ||
+    lowerMsg.includes('failed to get document') ||
+    lowerMsg.includes('network') ||
+    lowerMsg.includes('unavailable') ||
+    lowerMsg.includes('could not reach') ||
+    lowerMsg.includes('failed to fetch')
+  );
+}
+
 // Authentication Wrappers
 export async function loginWithGoogle() {
   const { auth } = await getFirebase();
   if (!auth) throw new Error('Firebase Auth not initialized');
   const provider = new GoogleAuthProvider();
-  return signInWithPopup(auth, provider);
+  provider.addScope('https://www.googleapis.com/auth/calendar');
+  const result = await signInWithPopup(auth, provider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (credential?.accessToken) {
+    cachedAccessToken = credential.accessToken;
+  }
+  return result;
+}
+
+export async function connectGoogleCalendar(): Promise<string> {
+  const { auth } = await getFirebase();
+  if (!auth) throw new Error('Firebase Auth not initialized');
+  const provider = new GoogleAuthProvider();
+  provider.addScope('https://www.googleapis.com/auth/calendar');
+  
+  let result;
+  if (auth.currentUser) {
+    try {
+      result = await linkWithPopup(auth.currentUser, provider);
+    } catch (e: any) {
+      if (e.code === 'auth/credential-already-in-use' || e.code === 'auth/provider-already-linked') {
+        result = await signInWithPopup(auth, provider);
+      } else {
+        result = await signInWithPopup(auth, provider);
+      }
+    }
+  } else {
+    result = await signInWithPopup(auth, provider);
+  }
+  
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (!credential?.accessToken) {
+    throw new Error('No access token returned from Google authentication.');
+  }
+  cachedAccessToken = credential.accessToken;
+  return cachedAccessToken;
 }
 
 export async function logout() {
   const { auth } = await getFirebase();
+  cachedAccessToken = null;
   if (auth) return signOut(auth);
 }
 
 // User Profile Functions
 export async function getUserProfile(uid: string): Promise<Partial<AppUser> | null> {
   const { db } = await getFirebase();
-  if (!db) return null;
+  
+  const getOfflineProfile = (): Partial<AppUser> | null => {
+    try {
+      const cached = localStorage.getItem(`user_profile_${uid}`);
+      if (cached) {
+        console.log('Restored user profile from local storage offline cache:', uid);
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      console.warn('Failed to read profile caches', e);
+    }
+    return null;
+  };
+
+  if (!db) return getOfflineProfile();
+  
   try {
     const userDoc = await getDoc(doc(db, 'users', uid));
     if (userDoc.exists()) {
-      return userDoc.data() as Partial<AppUser>;
+      const data = userDoc.data() as Partial<AppUser>;
+      try {
+        localStorage.setItem(`user_profile_${uid}`, JSON.stringify(data));
+      } catch (e) {
+        console.warn('Failed to save profile cache to localStorage', e);
+      }
+      return data;
     }
-    return null;
+    return getOfflineProfile();
   } catch (error) {
-    console.error('Failed to get user profile', error);
-    return null;
+    console.warn('Failed to get user profile from Firestore, using offline cache if available:', error);
+    return getOfflineProfile();
   }
 }
 
+function cleanObject(obj: any) {
+  const newObj: any = {};
+  Object.keys(obj).forEach(key => {
+    if (obj[key] !== undefined) {
+      newObj[key] = obj[key];
+    }
+  });
+  return newObj;
+}
+
 export async function setUserProfile(uid: string, profile: Partial<AppUser>) {
-  const { db } = await getFirebase();
-  if (!db) throw new Error('Database not initialized');
+  // Always cache locally first
   try {
-    await setDoc(doc(db, 'users', uid), profile, { merge: true });
+    const cached = localStorage.getItem(`user_profile_${uid}`);
+    const existing = cached ? JSON.parse(cached) : {};
+    const merged = { ...existing, ...profile };
+    localStorage.setItem(`user_profile_${uid}`, JSON.stringify(merged));
+  } catch (e) {
+    console.warn('Failed to update localStorage profile cache', e);
+  }
+
+  const { db } = await getFirebase();
+  if (!db) {
+    console.warn('Database offline, caching user profile update locally');
+    return;
+  }
+  
+  try {
+    const cleanedProfile = cleanObject(profile);
+    await setDoc(doc(db, 'users', uid), cleanedProfile, { merge: true });
   } catch (error) {
+    if (isOfflineError(error)) {
+      console.warn('Failed to sync profile update to server because the client is offline.');
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, `users/${uid}`);
   }
 }
 
-export async function registerWithEmail(userData: any) {
-  const { auth } = await getFirebase();
+export async function registerWithEmail(userData: any): Promise<AppUser> {
+  const { db, auth, storage } = await getFirebase();
   if (!auth) throw new Error('Auth not initialized');
   
-  const { email, password, displayName, age, gender, classGroup } = userData;
+  const { email, password, displayName, age, gender, classGroup, institutionId, studentId, passportFile, role } = userData;
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
   
   await updateProfile(user, { displayName });
   
+  // Now we are logged in, we can upload the passportFile if provided
+  let uploadedPhotoUrl = '';
+  if (passportFile && storage) {
+    try {
+      const fileRef = ref(storage, `passports/${user.uid}_${Date.now()}_${passportFile.name}`);
+      const snapshot = await uploadBytes(fileRef, passportFile);
+      uploadedPhotoUrl = await getDownloadURL(snapshot.ref);
+    } catch (uploadError) {
+      console.error('Failed to upload user passport photo during registration', uploadError);
+      throw new Error('Could not upload your passport photo. Please check your image size or format.');
+    }
+  }
+
   const isAdmin = email === 'ryanmaina4614@gmail.com';
   
-  await setUserProfile(user.uid, {
-    email,
-    displayName,
-    role: isAdmin ? UserRole.ADMIN : UserRole.VOTER,
-    votedElections: [],
-    age: parseInt(age),
-    gender,
-    classGroup
-  });
+  if (isAdmin && db) {
+    await setDoc(doc(db, 'admins', user.uid), { email, role: 'admin' });
+  }
   
-  return user;
+  const parsedAge = parseInt(age);
+  const userProfile: AppUser = {
+    uid: user.uid,
+    email: email || '',
+    displayName: displayName || '',
+    role: isAdmin ? UserRole.ADMIN : (role || UserRole.VOTER),
+    institutionId: institutionId || 'default',
+    studentId: studentId || 'N/A',
+    votedElections: [],
+    age: isNaN(parsedAge) ? 0 : parsedAge,
+    gender: gender || '',
+    classGroup: classGroup || '',
+    passportPhotoUrl: uploadedPhotoUrl || userData.passportPhotoUrl || ''
+  };
+  
+  await setUserProfile(user.uid, userProfile);
+  
+  return userProfile;
 }
 
 export async function loginWithEmail(email: string, password: string) {
@@ -131,16 +270,62 @@ export async function loginWithEmail(email: string, password: string) {
 }
 
 // Database Functions
-export async function getElections(): Promise<Election[]> {
+export async function getElections(institutionId?: string): Promise<Election[]> {
+  const getOfflineElections = (): Election[] => {
+    try {
+      const cached = localStorage.getItem('elections_cache');
+      if (cached) {
+        let elections = JSON.parse(cached) as Election[];
+        if (institutionId) {
+          elections = elections.filter(e => e.institutionId === institutionId);
+        }
+        return elections;
+      }
+    } catch (e) {
+      console.warn('Failed to read cached elections', e);
+    }
+    return [];
+  };
+
   const { db } = await getFirebase();
-  if (!db) return [];
-  const electionsCol = collection(db, 'elections');
+  if (!db) return getOfflineElections();
+  
+  let electionsCol = query(collection(db, 'elections'));
+  if (institutionId) {
+    electionsCol = query(collection(db, 'elections'), where('institutionId', '==', institutionId));
+  }
+
   try {
     const snapshot = await getDocs(electionsCol);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Election));
+    const elections = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Election));
+    
+    // Save to global cache in localStorage
+    try {
+      const existingCached = localStorage.getItem('elections_cache');
+      let merged: Election[] = elections;
+      if (existingCached && institutionId) {
+        const parsedExisting = JSON.parse(existingCached) as Election[];
+        const map = new Map(parsedExisting.map(e => [e.id, e]));
+        elections.forEach(e => map.set(e.id, e));
+        merged = Array.from(map.values());
+      }
+      localStorage.setItem('elections_cache', JSON.stringify(merged));
+    } catch (e) {
+      console.warn('Failed to cache elections in localStorage', e);
+    }
+    
+    return elections;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, 'elections');
-    return [];
+    if (isOfflineError(error)) {
+      console.warn('Firestore is offline, returning cached elections if available.');
+      return getOfflineElections();
+    }
+    try {
+      handleFirestoreError(error, OperationType.LIST, 'elections');
+    } catch (e) {
+      console.warn('Silent fallback to local elections cache due to firestore fetch error:', e);
+    }
+    return getOfflineElections();
   }
 }
 
@@ -154,7 +339,7 @@ export async function createElection(electionData: Partial<Election>) {
     creatorId: auth.currentUser.uid,
     createdAt: new Date().toISOString(),
     totalVotes: 0,
-    status: ElectionStatus.UPCOMING,
+    status: electionData.status || ElectionStatus.UPCOMING,
     candidates: electionData.candidates?.map(c => ({ ...c, votesCount: 0 })) || []
   };
   
@@ -177,7 +362,26 @@ export async function updateElection(id: string, electionData: Partial<Election>
   }
 }
 
-export async function castVote(electionId: string, candidateId: string) {
+export async function deleteElection(id: string) {
+  const { db } = await getFirebase();
+  if (!db) throw new Error('Database not initialized');
+  
+  const electionRef = doc(db, 'elections', id);
+  try {
+    const { deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(electionRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `elections/${id}`);
+  }
+}
+
+export async function castVote(
+  electionId: string, 
+  candidateId: string, 
+  studentIdConfirmation?: string, 
+  voterReceiptCode?: string, 
+  trackingDetails?: any
+) {
   const { db, auth } = await getFirebase();
   if (!db || !auth?.currentUser) throw new Error('Not authenticated');
 
@@ -221,18 +425,114 @@ export async function castVote(electionId: string, candidateId: string) {
       transaction.set(recordRef, {
         voterId,
         electionId,
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
+        studentIdConfirmation: studentIdConfirmation || 'N/A',
+        voterReceiptCode: voterReceiptCode || 'N/A',
+        browserName: trackingDetails?.browserName || 'Unknown Browser',
+        userAgent: trackingDetails?.userAgent || 'Unknown User-Agent',
       });
 
       // 6. Create the anonymous vote doc (for audit/analytics)
       transaction.set(anonVoteRef, {
         electionId,
         candidateId,
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
+        voterReceiptCode: voterReceiptCode || 'N/A',
+        browserName: trackingDetails?.browserName || 'Unknown Browser',
+        userAgent: trackingDetails?.userAgent || 'Unknown User-Agent',
       });
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `vote-transaction/${electionId}`);
+  }
+}
+
+export async function getAnonymousVotes(electionId?: string): Promise<any[]> {
+  const { db } = await getFirebase();
+  if (!db) return [];
+  try {
+    let votesCol = query(collection(db, 'anonymousVotes'));
+    if (electionId) {
+      votesCol = query(collection(db, 'anonymousVotes'), where('electionId', '==', electionId));
+    }
+    const snapshot = await getDocs(votesCol);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Failed to get anonymous votes', error);
+    return [];
+  }
+}
+
+export async function getVoteRecords(electionId?: string): Promise<any[]> {
+  const { db } = await getFirebase();
+  if (!db) return [];
+  try {
+    let recordsCol = query(collection(db, 'voteRecords'));
+    if (electionId) {
+      recordsCol = query(collection(db, 'voteRecords'), where('electionId', '==', electionId));
+    }
+    const snapshot = await getDocs(recordsCol);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Failed to get vote records', error);
+    return [];
+  }
+}
+
+export async function getAllUsers(institutionId?: string): Promise<AppUser[]> {
+  const { db } = await getFirebase();
+  if (!db) return [];
+  try {
+    let usersQuery = query(collection(db, 'users'));
+    if (institutionId) {
+      usersQuery = query(collection(db, 'users'), where('institutionId', '==', institutionId));
+    }
+    const snapshot = await getDocs(usersQuery);
+    return snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as AppUser));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'users');
+    return [];
+  }
+}
+
+export async function updateUserProfileRole(uid: string, role: UserRole, institutionId?: string) {
+  const { db } = await getFirebase();
+  if (!db) throw new Error('Database not initialized');
+  const userRef = doc(db, 'users', uid);
+  const adminRef = doc(db, 'admins', uid);
+  
+  try {
+    await runTransaction(db, async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists()) throw new Error('User not found');
+      const currentUserData = userSnap.data() as AppUser;
+
+      const updateData: any = { role };
+      if (institutionId !== undefined) {
+        updateData.institutionId = institutionId;
+      }
+      
+      // Update User Profile
+      transaction.update(userRef, updateData);
+
+      // Manage Global Admin Status
+      const isNewRoleAdmin = role === UserRole.ADMIN;
+      const wasOldRoleAdmin = (currentUserData.role as string) === 'admin';
+
+      if (isNewRoleAdmin) {
+        transaction.set(adminRef, { 
+          email: currentUserData.email, 
+          role: 'admin',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } else if (wasOldRoleAdmin) {
+        // Only remove if they were an admin and are being demoted
+        // Note: Super-admin check should be handled by rules to prevent self-deletion
+        transaction.delete(adminRef);
+      }
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `user-management/${uid}`);
   }
 }
 
@@ -247,6 +547,20 @@ export async function uploadCandidatePhoto(file: File): Promise<string> {
   } catch (error) {
     console.error('Upload failed', error);
     throw new Error('Failed to upload candidate photo');
+  }
+}
+
+export async function uploadPassportPhoto(file: File): Promise<string> {
+  const { auth, storage } = await getFirebase();
+  if (!auth?.currentUser || !storage) throw new Error('Not authenticated or storage not ready');
+
+  const fileRef = ref(storage, `passports/${auth.currentUser.uid}_${Date.now()}_${file.name}`);
+  try {
+    const snapshot = await uploadBytes(fileRef, file);
+    return await getDownloadURL(snapshot.ref);
+  } catch (error) {
+    console.error('Upload failed', error);
+    throw new Error('Failed to upload passport photo');
   }
 }
 

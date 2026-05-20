@@ -1,6 +1,8 @@
 export enum UserRole {
   VOTER = 'voter',
   ADMIN = 'admin',
+  MANAGER = 'manager',
+  GUEST = 'guest',
 }
 
 export enum ElectionStatus {
@@ -21,6 +23,8 @@ export interface Election {
   id: string;
   title: string;
   description: string;
+  institutionId: string;
+  imageUrl?: string;
   startDate: string; // ISO string
   endDate: string; // ISO string
   status: ElectionStatus;
@@ -59,8 +63,11 @@ export interface AppUser {
   email: string;
   displayName: string;
   role: UserRole;
+  institutionId: string;
+  studentId: string;
   votedElections: string[]; // List of election IDs
-  age?: number;
-  classGroup?: string;
-  gender?: string;
+  age: number;
+  classGroup: string;
+  gender: string;
+  passportPhotoUrl?: string;
 }

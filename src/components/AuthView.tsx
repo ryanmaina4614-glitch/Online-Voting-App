@@ -1,43 +1,121 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckSquare, Shield, Lock, LogIn, UserPlus, Mail, Key, User, Calendar, BookOpen, Users } from 'lucide-react';
+import { CheckSquare, Shield, Lock, LogIn, UserPlus, Mail, Key, User, Calendar, BookOpen, Users, Camera, Upload } from 'lucide-react';
+import { AppUser } from '../types';
 
 interface AuthViewProps {
   onGoogleLogin: () => void;
   onEmailLogin: (email: string, pass: string) => Promise<void>;
   onRegister: (data: any) => Promise<void>;
+  onUpdateProfile?: (data: any) => Promise<void>;
+  onDemoLogin?: (role: 'manager' | 'voter') => Promise<void>;
+  onContinueAsGuest?: () => void;
+  initialData?: Partial<AppUser>;
+  viewMode?: 'auth' | 'complete-profile';
   loading?: boolean;
 }
 
-export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, loading }: AuthViewProps) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
+export default function AuthView({ 
+  onGoogleLogin, 
+  onEmailLogin, 
+  onRegister, 
+  onUpdateProfile,
+  onDemoLogin,
+  onContinueAsGuest,
+  initialData,
+  viewMode = 'auth',
+  loading 
+}: AuthViewProps) {
+  const [mode, setMode] = useState<'login' | 'register' | 'complete-profile'>(
+    viewMode === 'complete-profile' ? 'complete-profile' : 'login'
+  );
+  const [email, setEmail] = useState(initialData?.email || '');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [age, setAge] = useState('');
-  const [gender, setGender] = useState('');
-  const [classGroup, setClassGroup] = useState('');
+  const [displayName, setDisplayName] = useState(initialData?.displayName || '');
+  const [studentId, setStudentId] = useState(initialData?.studentId || '');
+  const [age, setAge] = useState(initialData?.age?.toString() || '');
+  const [gender, setGender] = useState(initialData?.gender || '');
+  const [classGroup, setClassGroup] = useState(initialData?.classGroup || '');
+  const [institutionId, setInstitutionId] = useState(initialData?.institutionId || '');
+  const [role, setRole] = useState<'voter' | 'manager'>(
+    initialData?.role === 'manager' ? 'manager' : 'voter'
+  );
+  const [passportFile, setPassportFile] = useState<File | null>(null);
+  const [passportPreview, setPassportPreview] = useState<string>('');
+  const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  
+  const handlePhotoFile = (file: File) => {
+    setPassportFile(file);
+    if (fieldErrors.passportFile) {
+      setFieldErrors(prev => ({ ...prev, passportFile: '' }));
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPassportPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    if (mode !== 'complete-profile') {
+      if (!email) errors.email = 'Email is required';
+      if (!password) errors.password = 'Password is required';
+      else if (password.length < 6) errors.password = 'Password must be at least 6 characters';
+    }
+
+    if (mode === 'register' || mode === 'complete-profile') {
+      if (!displayName) errors.displayName = 'Full name is required';
+      if (!studentId) errors.studentId = 'Student / Member ID is required';
+      if (!age) errors.age = 'Age is required';
+      if (!gender) errors.gender = 'Selection required';
+      if (!classGroup) errors.classGroup = 'Class/Group is required';
+      if (!institutionId) errors.institutionId = 'Institution ID is required';
+      
+      // Passport photo is strictly required for voters and managers during account registration (unless on complete profile with existing avatar)
+      if (!passportFile && !initialData?.passportPhotoUrl) {
+        errors.passportFile = 'A passport-sized photograph is required for identity verification';
+      }
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
+    if (!validateForm()) return;
+    
     try {
       if (mode === 'login') {
         await onEmailLogin(email, password);
-      } else {
-        if (!displayName || !age || !gender || !classGroup) {
-          setError('Please fill in all fields');
-          return;
-        }
+      } else if (mode === 'register') {
         await onRegister({
           email,
           password,
           displayName,
-          age,
+          studentId,
+          age: Number(age),
           gender,
-          classGroup
+          classGroup,
+          institutionId,
+          passportFile,
+          role,
+        });
+      } else if (mode === 'complete-profile' && onUpdateProfile) {
+        await onUpdateProfile({
+          displayName,
+          studentId,
+          age: Number(age),
+          gender,
+          classGroup,
+          institutionId,
+          passportFile,
+          role,
         });
       }
     } catch (err: any) {
@@ -50,19 +128,21 @@ export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, load
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl shadow-indigo-100 border border-slate-100 p-8 md:p-10 flex flex-col items-center"
+        className="max-w-md w-full bg-slate-100 rounded-[3rem] shadow-[16px_16px_32px_#cbd5e1,-16px_-16px_32px_#ffffff] border-4 border-white/60 p-8 md:p-10 flex flex-col items-center"
       >
-        <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200 mb-6 transform -rotate-3">
-          <CheckSquare className="w-8 h-8 text-white" />
+        <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center shadow-[6px_6px_12px_#cbd5e1,-6px_-6px_12px_#ffffff] mb-6 transform -rotate-3 border border-white">
+          <CheckSquare className="w-8 h-8 text-indigo-600" />
         </div>
         
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">
-          {mode === 'login' ? 'Welcome Back' : 'Join VoteSecure'}
+        <h2 className="text-3xl font-display font-black text-slate-800 tracking-tight mb-2">
+          {mode === 'login' ? 'Welcome Back' : mode === 'register' ? 'Join VoteSecure' : 'Complete Your Profile'}
         </h2>
-        <p className="text-slate-500 font-medium mb-8 leading-relaxed text-sm text-center">
+        <p className="text-slate-500 font-extrabold mb-8 leading-relaxed text-[11px] text-center uppercase tracking-widest bg-slate-200/50 px-3.5 py-1 rounded-full border border-slate-300/30">
           {mode === 'login' 
             ? 'Access your secure, anonymous voting dashboard.' 
-            : 'Register your details to participate in school elections.'}
+            : mode === 'register'
+            ? 'Register your details to participate in school elections.'
+            : 'Please provide the missing details to access the system.'}
         </p>
 
         {error && (
@@ -72,9 +152,40 @@ export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, load
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="w-full space-y-4">
-          {mode === 'register' && (
+        <form onSubmit={handleSubmit} className="w-full space-y-5">
+          {(mode === 'register' || mode === 'complete-profile') && (
             <div className="space-y-4">
+              {/* Role Segment Selector */}
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-500 block ml-1">
+                  I am registering as:
+                </label>
+                <div className="bg-slate-100 p-1.5 rounded-2xl flex gap-1.5 shadow-[inset_3px_3px_6px_#cbd5e1,inset_-3px_-3px_6px_#ffffff] border border-slate-200/50">
+                  <button
+                    type="button"
+                    onClick={() => setRole('voter')}
+                    className={`flex-1 py-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
+                      role === 'voter' 
+                        ? 'bg-indigo-600 text-white shadow-md' 
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <User className="w-4 h-4" /> Voter Account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRole('manager')}
+                    className={`flex-1 py-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
+                      role === 'manager' 
+                        ? 'bg-indigo-600 text-white shadow-md' 
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4" /> Manager Account
+                  </button>
+                </div>
+              </div>
+
               <div className="relative">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input 
@@ -82,9 +193,40 @@ export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, load
                   placeholder="Full Name"
                   required
                   value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all"
+                  onChange={(e) => {
+                    setDisplayName(e.target.value);
+                    if (fieldErrors.displayName) setFieldErrors(prev => ({ ...prev, displayName: '' }));
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 neu-input rounded-2xl font-black text-sm focus:outline-none focus:border-indigo-600 transition-all ${
+                    fieldErrors.displayName ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                  }`}
                 />
+                {fieldErrors.displayName && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.displayName}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <Shield className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Student / Member ID"
+                  required
+                  value={studentId}
+                  onChange={(e) => {
+                    setStudentId(e.target.value);
+                    if (fieldErrors.studentId) setFieldErrors(prev => ({ ...prev, studentId: '' }));
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 neu-input rounded-2xl font-black text-sm focus:outline-none focus:border-indigo-600 transition-all ${
+                    fieldErrors.studentId ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                  }`}
+                />
+                {fieldErrors.studentId && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.studentId}
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="relative">
@@ -94,23 +236,43 @@ export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, load
                     placeholder="Age"
                     required
                     value={age}
-                    onChange={(e) => setAge(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all text-sm"
+                    onChange={(e) => {
+                      setAge(e.target.value);
+                      if (fieldErrors.age) setFieldErrors(prev => ({ ...prev, age: '' }));
+                    }}
+                    className={`w-full pl-10 pr-4 py-3.5 neu-input rounded-xl font-black focus:outline-none focus:border-indigo-600 transition-all text-sm ${
+                      fieldErrors.age ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                    }`}
                   />
+                  {fieldErrors.age && (
+                    <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                      {fieldErrors.age}
+                    </span>
+                  )}
                 </div>
                 <div className="relative">
                   <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <select 
                     value={gender}
-                    onChange={(e) => setGender(e.target.value)}
+                    onChange={(e) => {
+                      setGender(e.target.value);
+                      if (fieldErrors.gender) setFieldErrors(prev => ({ ...prev, gender: '' }));
+                    }}
                     required
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all text-sm appearance-none"
+                    className={`w-full pl-10 pr-4 py-3.5 neu-input rounded-xl font-black focus:outline-none focus:border-indigo-600 transition-all text-sm appearance-none ${
+                      fieldErrors.gender ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                    }`}
                   >
                     <option value="">Gender</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                     <option value="other">Other</option>
                   </select>
+                  {fieldErrors.gender && (
+                    <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                      {fieldErrors.gender}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="relative">
@@ -120,81 +282,273 @@ export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, load
                   placeholder="Class / Group (e.g. Grade 11A)"
                   required
                   value={classGroup}
-                  onChange={(e) => setClassGroup(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all"
+                  onChange={(e) => {
+                    setClassGroup(e.target.value);
+                    if (fieldErrors.classGroup) setFieldErrors(prev => ({ ...prev, classGroup: '' }));
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 neu-input rounded-2xl font-black text-sm focus:outline-none focus:border-indigo-600 transition-all ${
+                    fieldErrors.classGroup ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                  }`}
                 />
+                {fieldErrors.classGroup && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.classGroup}
+                  </span>
+                )}
               </div>
+              <div className="relative">
+                <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input 
+                  type="text"
+                  placeholder="Institution ID (e.g. School A)"
+                  required
+                  value={institutionId}
+                  onChange={(e) => {
+                    setInstitutionId(e.target.value);
+                    if (fieldErrors.institutionId) setFieldErrors(prev => ({ ...prev, institutionId: '' }));
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 neu-input rounded-2xl font-black text-sm focus:outline-none focus:border-indigo-600 transition-all ${
+                    fieldErrors.institutionId ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                  }`}
+                />
+                {fieldErrors.institutionId && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.institutionId}
+                  </span>
+                )}
+              </div>
+
+              {/* Passport Photo Upload Dragzone */}
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-500 block ml-1 flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-indigo-600 animate-pulse" />
+                  Upload Passport Photo <span className="text-red-500">*</span>
+                </label>
+
+                <div 
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                    const files = e.dataTransfer.files;
+                    if (files && files[0]) {
+                      handlePhotoFile(files[0]);
+                    }
+                  }}
+                  className={`border-4 border-slate-200/50 rounded-[2rem] p-5 text-center transition-all relative overflow-hidden flex flex-col items-center justify-center min-h-[140px] shadow-[inset_3px_3px_6px_#cbd5e1,inset_-3px_-3px_6px_#ffffff] ${
+                    dragActive ? 'bg-indigo-50/25 border-indigo-400' : 'bg-slate-100 hover:bg-slate-50/30'
+                  }`}
+                >
+                  {passportPreview || initialData?.passportPhotoUrl ? (
+                    <div className="space-y-3 flex flex-col items-center">
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-white bg-slate-100 shadow-[inset_2px_2px_5px_#cbd5e1,inset_-2px_-2px_5px_#ffffff] flex items-center justify-center group">
+                        <img 
+                          src={passportPreview || initialData?.passportPhotoUrl} 
+                          className="w-full h-full object-cover" 
+                          alt="Passport Sized Photograph"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                          <Upload className="w-5 h-5 text-white" />
+                        </div>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-black text-emerald-600">Photo Verified & Loaded</span>
+                        <span className="text-[9px] text-slate-400 font-bold block">Drag or Click to replace</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-2 flex flex-col items-center">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 shadow-[2px_2px_5px_#cbd5e1,-2px_-2px_5px_#ffffff] flex items-center justify-center mb-2.5 border border-white text-indigo-600">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <div className="text-xs text-slate-500 leading-normal font-bold">
+                        <span className="font-extrabold text-indigo-600 hover:underline">Click to upload</span> or drag image here<br/>
+                        <span className="text-[9px] text-slate-400">Standard passport photo format</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <input 
+                    type="file"
+                    accept="image/*"
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    onChange={(e) => {
+                      const files = e.target.files;
+                      if (files && files[0]) {
+                        handlePhotoFile(files[0]);
+                      }
+                    }}
+                  />
+                </div>
+
+                {fieldErrors.passportFile && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.passportFile}
+                  </span>
+                )}
+              </div>
+
             </div>
           )}
 
-          <div className="relative">
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input 
-              type="email"
-              placeholder="Email Address"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all"
-            />
-          </div>
+          {mode !== 'complete-profile' && (
+            <>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input 
+                  type="email"
+                  placeholder="Email Address"
+                  required
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 neu-input rounded-2xl font-black text-sm focus:outline-none focus:border-indigo-600 transition-all ${
+                    fieldErrors.email ? 'border-red-500 font-black' : 'border-slate-200/40 focus:border-indigo-600'
+                  }`}
+                />
+                {fieldErrors.email && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.email}
+                  </span>
+                )}
+              </div>
 
-          <div className="relative">
-            <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input 
-              type="password"
-              placeholder="Password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 transition-all"
-            />
-          </div>
+              <div className="relative">
+                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input 
+                  type="password"
+                  placeholder="Password"
+                  required
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: '' }));
+                  }}
+                  className={`w-full pl-12 pr-4 py-4 neu-input rounded-2xl font-black text-sm focus:outline-none focus:border-indigo-600 transition-all ${
+                    fieldErrors.password ? 'border-red-500 font-black' : 'border-slate-200/40 focus:border-indigo-600'
+                  }`}
+                />
+                {fieldErrors.password && (
+                  <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
+                    {fieldErrors.password}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
 
           <button 
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50"
+            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-[4px_4px_10px_#cbd5e1,-4px_-4px_10px_#ffffff] hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50"
           >
             {loading ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              mode === 'login' ? <LogIn className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />
+              mode === 'login' ? <LogIn className="w-5 h-5" /> : mode === 'register' ? <UserPlus className="w-5 h-5" /> : <Lock className="w-5 h-5" />
             )}
-            {mode === 'login' ? 'Sign In' : 'Register Account'}
+            {mode === 'login' ? 'Sign In' : mode === 'register' ? 'Register Account' : 'Update Profile'}
           </button>
         </form>
 
-        <div className="relative w-full my-8">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-100"></div>
-          </div>
-          <div className="relative flex justify-center text-xs font-black uppercase tracking-widest text-slate-400">
-            <span className="px-4 bg-white">Or continue with</span>
-          </div>
-        </div>
+        {mode !== 'complete-profile' && (
+          <>
+            <div className="relative w-full my-8">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200/60"></div>
+              </div>
+              <div className="relative flex justify-center text-xs font-black uppercase tracking-widest text-slate-400">
+                <span className="px-4 bg-slate-100">Or continue with</span>
+              </div>
+            </div>
 
-        <button 
-          onClick={onGoogleLogin}
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 py-4 px-6 rounded-2xl font-bold text-slate-700 hover:border-indigo-600 hover:text-indigo-600 transition-all active:scale-95 disabled:opacity-50"
-        >
-          <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-          Google Account
-        </button>
+            <button 
+              onClick={onGoogleLogin}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 py-4 px-6 rounded-2xl font-black text-slate-700 hover:text-indigo-600 neu-button disabled:opacity-50"
+            >
+              <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+              Google Account
+            </button>
 
-        <p className="mt-8 text-sm font-bold text-slate-500">
-          {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
-          <button 
-            onClick={() => {
-              setMode(mode === 'login' ? 'register' : 'login');
-              setError('');
-            }}
-            className="text-indigo-600 hover:underline"
-          >
-            {mode === 'login' ? 'Register Now' : 'Sign In'}
-          </button>
-        </p>
+            {onDemoLogin && (
+              <>
+                <div className="relative w-full my-8">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-200/60"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-indigo-500">
+                    <span className="px-4 bg-slate-100 flex items-center gap-1.5 font-extrabold text-[9px]">Fast-Track Lab Portals</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 w-full">
+                  <button 
+                    type="button"
+                    onClick={() => onDemoLogin('manager')}
+                    disabled={loading}
+                    className="py-3.5 px-3 rounded-2xl font-black text-[11px] uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 shadow-[4px_4px_10px_#cbd5e1,-4px_-4px_10px_#ffffff] disabled:opacity-50"
+                  >
+                    <Shield className="w-4 h-4 shrink-0" /> Manager Portal
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => onDemoLogin('voter')}
+                    disabled={loading}
+                    className="py-3.5 px-3 rounded-2xl font-black text-[11px] uppercase tracking-wider text-slate-700 hover:text-indigo-600 neu-button active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <User className="w-4 h-4 shrink-0" /> Voter Portal
+                  </button>
+                </div>
+              </>
+            )}
+
+            {onContinueAsGuest && (
+              <>
+                <div className="relative w-full my-8">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-200/60"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                    <span className="px-4 bg-slate-100 flex items-center gap-1 font-extrabold text-[9px]">📖 Guest Access</span>
+                  </div>
+                </div>
+
+                <button 
+                  type="button"
+                  onClick={onContinueAsGuest}
+                  disabled={loading}
+                  className="w-full py-4 px-6 rounded-2xl font-black text-xs uppercase tracking-wider text-slate-700 hover:text-emerald-600 neu-button active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" /> Explore Regulations as Guest
+                </button>
+              </>
+            )}
+
+            <p className="mt-8 text-sm font-extrabold text-slate-500">
+              {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
+              <button 
+                onClick={() => {
+                  setMode(mode === 'login' ? 'register' : 'login');
+                  setError('');
+                }}
+                className="text-indigo-600 hover:underline font-black"
+              >
+                {mode === 'login' ? 'Register Now' : 'Sign In'}
+              </button>
+            </p>
+          </>
+        )}
 
         <div className="mt-10 grid grid-cols-2 gap-4 w-full border-t border-slate-50 pt-8 opacity-60">
           <div className="flex flex-col items-center gap-1">
@@ -210,3 +564,4 @@ export default function AuthView({ onGoogleLogin, onEmailLogin, onRegister, load
     </div>
   );
 }
+

@@ -13,7 +13,7 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+    @apply bg-slate-100 text-slate-900 font-sans antialiased;
   }
 }
 
@@ -24,6 +24,67 @@
 
 .animate-pulse-slow {
   animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Neumorphism Utility Classes */
+@utility neu-flat {
+  background: #f1f5f9;
+  box-shadow: 12px 12px 24px #cbd5e1, -12px -12px 24px #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+@utility neu-flat-dark {
+  background: #0f172a;
+  box-shadow: 10px 10px 20px #020617, -10px -10px 20px #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@utility neu-pressed {
+  background: #f1f5f9;
+  box-shadow: inset 8px 8px 16px #cbd5e1, inset -8px -8px 16px #ffffff;
+}
+
+@utility neu-pressed-dark {
+  background: #0f172a;
+  box-shadow: inset 6px 6px 12px #020617, inset -6px -6px 12px #1e293b;
+}
+
+@utility neu-button {
+  background: #f1f5f9;
+  box-shadow: 5px 5px 10px #cbd5e1, -5px -5px 10px #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &:hover {
+    box-shadow: 2px 2px 5px #cbd5e1, -2px -2px 5px #ffffff;
+    transform: translateY(1px);
+  }
+  
+  &:active {
+    box-shadow: inset 3px 3px 6px #cbd5e1, inset -3px -3px 6px #ffffff;
+    transform: translateY(2px);
+  }
+}
+
+@utility neu-button-indigo {
+  @apply bg-indigo-600 text-white border border-indigo-500/30;
+  box-shadow: 5px 5px 10px #cbd5e1, -5px -5px 10px #ffffff;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &:hover {
+    @apply bg-indigo-700;
+    box-shadow: 2px 2px 5px #cbd5e1, -2px -2px 5px #ffffff;
+  }
+  
+  &:active {
+    box-shadow: inset 3px 3px 6px rgba(0,0,0,0.2);
+  }
+}
+
+@utility neu-input {
+  background: #f8fafc;
+  box-shadow: inset 3px 3px 6px #cbd5e1, inset -3px -3px 6px #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.5);
 }
 
 /* Glassmorphism utility */
