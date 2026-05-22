@@ -1,20 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# VoteSecure
 
-# Run and deploy your AI Studio app
+VoteSecure is a comprehensive, secure, and transparent online voting platform designed specifically for schools, universities, and clubs to conduct digital elections with ease and integrity.
 
-This contains everything you need to run your app locally.
+## Key Features
 
-View your app in AI Studio: https://ai.studio/apps/0fba6149-8208-4661-8dce-9ee5eac799bd
+- **Secure Authentication**: Integrated with Firebase Authentication to ensure that only authorized users can vote.
+- **Election Management**: Admins can create and configure elections with specific start, end, and campaign periods.
+- **Multimedia Campaigning**: Candidates can showcase their manifestos through text, images, audio, and video content that is securely managed and duration-locked.
+- **Real-time Analytics**: Built-in dashboards allow users to view voter turnout statistics and results with dynamic, interactive charts.
+- **Role-Based Access Control**: Clearly defined roles for voters, managers, and admins to ensure platform security.
 
-## Run Locally
+## Technologies Used
 
-**Prerequisites:**  Node.js
+- **Frontend**: React (18+), Vite, Tailwind CSS, Motion (Animations)
+- **Backend/Database**: Firebase (Firestore, Auth)
+- **Visualization**: Recharts (for turnout/results visualization)
+- **Language**: TypeScript
 
+## Project Structure
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- `/src/components/`: Modular React components for the user interface, including dashboards, forms, and charting utilities.
+- `/src/services/`: Firebase service configurations and utility functions.
+- `/firestore.rules`: Security rules for the Firestore database, ensuring authorized data access and modifications.
+
+---
+
+*This application is managed and previewed through Google AI Studio, Ryan Maina and Alex Gachuhi.*

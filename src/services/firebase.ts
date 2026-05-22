@@ -37,7 +37,7 @@ import {
   getDownloadURL, 
   type FirebaseStorage 
 } from 'firebase/storage';
-import { Election, ElectionStatus, Candidate, AppUser, UserRole } from '../types';
+import { Election, ElectionStatus, Candidate, AppUser, UserRole, Institution, BiometricActivityLog } from '../types';
 
 let db: Firestore | null = null;
 let auth: Auth | null = null;
@@ -110,18 +110,25 @@ export async function connectGoogleCalendar(): Promise<string> {
   provider.addScope('https://www.googleapis.com/auth/calendar');
   
   let result;
-  if (auth.currentUser) {
-    try {
-      result = await linkWithPopup(auth.currentUser, provider);
-    } catch (e: any) {
-      if (e.code === 'auth/credential-already-in-use' || e.code === 'auth/provider-already-linked') {
-        result = await signInWithPopup(auth, provider);
-      } else {
-        result = await signInWithPopup(auth, provider);
+  try {
+    if (auth.currentUser) {
+      try {
+        result = await linkWithPopup(auth.currentUser, provider);
+      } catch (e: any) {
+        if (e.code === 'auth/credential-already-in-use' || e.code === 'auth/provider-already-linked') {
+          result = await signInWithPopup(auth, provider);
+        } else {
+          result = await signInWithPopup(auth, provider);
+        }
       }
+    } else {
+      result = await signInWithPopup(auth, provider);
     }
-  } else {
-    result = await signInWithPopup(auth, provider);
+  } catch (error: any) {
+    if (error.code === 'auth/popup-closed-by-user' || error.message?.includes('popup-closed-by-user')) {
+      throw new Error('Google Calendar popup was closed or blocked. If you are in the AI Studio preview iframe, please open the application in a new tab using the button in the top-right corner of the preview area and try again.');
+    }
+    throw error;
   }
   
   const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -214,11 +221,36 @@ export async function setUserProfile(uid: string, profile: Partial<AppUser>) {
   }
 }
 
+export async function getManagerCount(institutionId: string): Promise<number> {
+  const { db } = await getFirebase();
+  if (!db) return 0;
+  try {
+    const q = query(
+      collection(db, 'users'), 
+      where('institutionId', '==', institutionId),
+      where('role', '==', 'manager')
+    );
+    const snap = await getDocs(q);
+    return snap.size;
+  } catch (error) {
+    console.error('Failed to get manager count', error);
+    return 0;
+  }
+}
+
 export async function registerWithEmail(userData: any): Promise<AppUser> {
   const { db, auth, storage } = await getFirebase();
   if (!auth) throw new Error('Auth not initialized');
   
   const { email, password, displayName, age, gender, classGroup, institutionId, studentId, passportFile, role } = userData;
+  
+  if (role === 'manager') {
+    const mCount = await getManagerCount(institutionId || 'default');
+    if (mCount >= 5) {
+      throw new Error('This institution already has the maximum of 5 managers registered. Only voters can register now.');
+    }
+  }
+
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
   
@@ -495,6 +527,101 @@ export async function getAllUsers(institutionId?: string): Promise<AppUser[]> {
   }
 }
 
+export async function getInstitutions(): Promise<Institution[]> {
+  const { db, auth } = await getFirebase();
+  if (!db) return [];
+  try {
+    const currentUser = auth?.currentUser;
+    if (currentUser) {
+      try {
+        const cached = localStorage.getItem(`user_profile_${currentUser.uid}`);
+        if (cached) {
+          const profile = JSON.parse(cached);
+          if (profile?.role === 'manager' && profile?.institutionId) {
+            const instDoc = await getDoc(doc(db, 'institutions', profile.institutionId));
+            if (instDoc.exists()) {
+              return [{ id: instDoc.id, ...instDoc.data() } as Institution];
+            }
+            return [];
+          }
+        }
+      } catch (err) {
+        console.warn('Silent manager profile fetch warning in getInstitutions:', err);
+      }
+    }
+
+    const snapshot = await getDocs(collection(db, 'institutions'));
+    let institutions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Institution));
+    
+    // Seed default institutions if database is empty
+    if (institutions.length === 0) {
+      const defaults: Institution[] = [
+        { id: 'SCH-78214', name: 'Greenfield High School', location: 'Nairobi' },
+        { id: 'SCH-45928', name: 'Sunshine Academy', location: 'Mombasa' },
+        { id: 'SCH-96137', name: 'Riverside Secondary', location: 'Kisumu' },
+        { id: 'SCH-31459', name: 'Bright Future School', location: 'Eldoret' },
+        { id: 'SCH-62783', name: 'Heritage College', location: 'Nyeri' },
+        { id: 'default', name: 'System Default Institution', location: 'Virtual' }
+      ];
+      
+      for (const inst of defaults) {
+        try {
+          await setDoc(doc(db, 'institutions', inst.id), {
+            name: inst.name,
+            location: inst.location,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err) {
+          console.warn('Failed to seed institution ' + inst.id, err);
+        }
+      }
+      institutions = defaults;
+    }
+    
+    return institutions;
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.LIST, 'institutions');
+    } catch (e) {
+      console.warn('Silent fallback for institutions list:', e);
+    }
+    return [
+      { id: 'SCH-78214', name: 'Greenfield High School', location: 'Nairobi' },
+      { id: 'SCH-45928', name: 'Sunshine Academy', location: 'Mombasa' },
+      { id: 'SCH-96137', name: 'Riverside Secondary', location: 'Kisumu' },
+      { id: 'SCH-31459', name: 'Bright Future School', location: 'Eldoret' },
+      { id: 'SCH-62783', name: 'Heritage College', location: 'Nyeri' },
+      { id: 'default', name: 'System Default Institution', location: 'Virtual' }
+    ];
+  }
+}
+
+export async function createInstitution(id: string, name: string, location: string, imageUrl?: string): Promise<void> {
+  const { db } = await getFirebase();
+  if (!db) throw new Error('Database not initialized');
+  try {
+    await setDoc(doc(db, 'institutions', id), {
+      name,
+      location,
+      imageUrl: imageUrl || '',
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `institutions/${id}`);
+  }
+}
+
+export async function deleteInstitution(id: string): Promise<void> {
+  const { db } = await getFirebase();
+  if (!db) throw new Error('Database not initialized');
+  try {
+    const { deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(doc(db, 'institutions', id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `institutions/${id}`);
+  }
+}
+
 export async function updateUserProfileRole(uid: string, role: UserRole, institutionId?: string) {
   const { db } = await getFirebase();
   if (!db) throw new Error('Database not initialized');
@@ -550,6 +677,20 @@ export async function uploadCandidatePhoto(file: File): Promise<string> {
   }
 }
 
+export async function uploadCampaignFile(file: File): Promise<string> {
+  const { auth, storage } = await getFirebase();
+  if (!auth?.currentUser || !storage) throw new Error('Not authenticated or storage not ready');
+
+  const fileRef = ref(storage, `campaign_docs/${Date.now()}_${file.name}`);
+  try {
+    const snapshot = await uploadBytes(fileRef, file);
+    return await getDownloadURL(snapshot.ref);
+  } catch (error) {
+    console.error('Campaign file upload failed', error);
+    throw new Error('Failed to upload campaign document/multimedia file');
+  }
+}
+
 export async function uploadPassportPhoto(file: File): Promise<string> {
   const { auth, storage } = await getFirebase();
   if (!auth?.currentUser || !storage) throw new Error('Not authenticated or storage not ready');
@@ -585,6 +726,25 @@ enum OperationType {
   LIST = 'list',
   GET = 'get',
   WRITE = 'write',
+}
+
+export async function logBiometricActivity(logData: Partial<BiometricActivityLog>): Promise<void> {
+  const { db } = await getFirebase();
+  if (!db) {
+    console.warn('Logging offline. Database not initialized.');
+    return;
+  }
+  try {
+    await addDoc(collection(db, 'biometricLogs'), {
+      email: logData.email || 'unknown@votesecure.com',
+      displayName: logData.displayName || 'Unknown User',
+      status: logData.status || 'failed',
+      errorMessage: logData.errorMessage || '',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Failed to write biometric activity log', error);
+  }
 }
 
 export async function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {

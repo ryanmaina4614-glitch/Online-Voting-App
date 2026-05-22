@@ -48,6 +48,7 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
 
   // Selected candidate manifesto modal detail for campaign/upcoming stage
   const [selectedCampaignCandidate, setSelectedCampaignCandidate] = useState<Candidate | null>(null);
+  const [hoveredCandidateId, setHoveredCandidateId] = useState<string | null>(null);
 
   // Google Calendar Integration states
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
@@ -350,15 +351,23 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
               return (
                 <motion.div
                   key={election.id}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
+                  whileHover={{ 
+                    scale: 1.025, 
+                    y: -3,
+                    boxShadow: isSelected 
+                      ? "0 20px 25px -5px rgba(99, 102, 241, 0.15), 0 8px 10px -6px rgba(99, 102, 241, 0.15)"
+                      : "0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.08)",
+                    backgroundColor: isSelected ? "#ffffff" : "#f8fafc"
+                  }}
+                  whileTap={{ scale: 0.985 }}
+                  transition={{ type: "spring", stiffness: 350, damping: 22 }}
                   onClick={() => setViewedElectionId(election.id)}
                   onMouseEnter={(e) => handleCardMouseEnter(e, election)}
                   onMouseLeave={handleCardMouseLeave}
-                  className={`p-4 rounded-2xl border cursor-pointer transition-all ${
+                  className={`p-4 rounded-2xl border cursor-pointer border-slate-200 transition-shadow ${
                     isSelected
-                      ? 'bg-white border-indigo-500 shadow-md ring-2 ring-indigo-100'
-                      : 'bg-white hover:bg-slate-50 border-slate-200 shadow-sm'
+                      ? 'border-indigo-500 ring-2 ring-indigo-100 shadow-sm'
+                      : 'bg-white border-slate-200 shadow-sm'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -547,7 +556,12 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
                           ? Math.round((candidate.votesCount / viewedElection.totalVotes) * 100)
                           : 0;
                         return (
-                          <div key={candidate.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                          <div 
+                            key={candidate.id} 
+                            onMouseEnter={() => setHoveredCandidateId(candidate.id)}
+                            onMouseLeave={() => setHoveredCandidateId(null)}
+                            className="relative p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2 cursor-help transition-all hover:bg-slate-100/50"
+                          >
                             <div className="flex justify-between items-center">
                               <span className="font-bold text-slate-700 text-sm">{candidate.name}</span>
                               <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
@@ -557,6 +571,31 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
                             <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
                               <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
+
+                            {/* Hover detail tooltip */}
+                            {hoveredCandidateId === candidate.id && (
+                              <div className="absolute z-30 bottom-[calc(100%+12px)] left-1/2 -translate-x-1/2 w-80 bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-2xl text-left pointer-events-none animate-fade-in transition-all">
+                                <div className="flex items-center gap-4 mb-3 pb-3 border-b border-slate-800">
+                                  <div className="w-10 h-10 rounded-full bg-slate-800 overflow-hidden shrink-0 border border-slate-700">
+                                    {candidate.photoUrl ? (
+                                      <img src={candidate.photoUrl} alt={candidate.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-slate-550 font-bold text-xs">
+                                        {candidate.name.split(' ').map(n=>n[0]).join('')}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <h5 className="font-extrabold text-white text-sm leading-tight text-ellipsis overflow-hidden whitespace-nowrap max-w-[180px]">{candidate.name}</h5>
+                                    <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mt-0.5">Campaign Manifesto Profile</p>
+                                  </div>
+                                </div>
+                                <div className="text-xs text-slate-350 font-medium leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                                  {candidate.bio || "No biography details registered."}
+                                </div>
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 border-4 border-transparent border-t-slate-900"></div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -585,15 +624,46 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
                         <div 
                           key={candidate.id}
                           onClick={() => setSelectedCampaignCandidate(candidate)}
-                          className="bg-slate-50 hover:bg-slate-100/70 border border-slate-100 rounded-2xl p-4 text-center cursor-pointer transition-colors group"
+                          onMouseEnter={() => setHoveredCandidateId(candidate.id)}
+                          onMouseLeave={() => setHoveredCandidateId(null)}
+                          className="relative bg-slate-50 hover:bg-slate-100/70 border border-slate-100 rounded-2xl p-4 text-center cursor-pointer transition-colors group"
                         >
-                          <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-full mx-auto mb-3 flex items-center justify-center font-bold text-lg group-hover:scale-105 transition-transform border border-indigo-100 shadow-inner">
-                            {candidate.name.split(' ').map(n=>n[0]).join('')}
+                          <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-full mx-auto mb-3 flex items-center justify-center font-bold text-lg group-hover:scale-105 transition-transform border border-indigo-100 shadow-inner overflow-hidden">
+                            {candidate.photoUrl ? (
+                              <img src={candidate.photoUrl} alt={candidate.name} className="w-full h-full object-cover" />
+                            ) : (
+                              candidate.name.split(' ').map(n=>n[0]).join('')
+                            )}
                           </div>
                           <h4 className="font-bold text-slate-800 text-sm">{candidate.name}</h4>
                           <span className="text-[10px] text-indigo-600 font-bold block mt-1 hover:underline">
                             Read Manifesto &rarr;
                           </span>
+
+                          {/* Hover detail tooltip */}
+                          {hoveredCandidateId === candidate.id && (
+                            <div className="absolute z-30 bottom-[calc(100%+12px)] left-1/2 -translate-x-1/2 w-80 bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-2xl text-left pointer-events-none animate-fade-in transition-all">
+                              <div className="flex items-center gap-4 mb-3 pb-3 border-b border-slate-800">
+                                <div className="w-10 h-10 rounded-full bg-slate-800 overflow-hidden shrink-0 border border-slate-700">
+                                  {candidate.photoUrl ? (
+                                    <img src={candidate.photoUrl} alt={candidate.name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-550 font-bold text-xs">
+                                      {candidate.name.split(' ').map(n=>n[0]).join('')}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <h5 className="font-extrabold text-white text-sm leading-tight text-ellipsis overflow-hidden whitespace-nowrap max-w-[180px]">{candidate.name}</h5>
+                                  <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mt-0.5">Campaign Manifesto Profile</p>
+                                </div>
+                              </div>
+                              <div className="text-xs text-slate-300 font-medium leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                                {candidate.bio || "No biography details registered."}
+                              </div>
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 border-4 border-transparent border-t-slate-900"></div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -741,8 +811,12 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
               className="bg-white rounded-[3rem] p-8 max-w-lg w-full shadow-2xl border border-slate-100 relative text-left"
             >
               <div className="flex items-center gap-4 mb-6 border-b border-slate-100 pb-5">
-                <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-indigo-700 rounded-full flex items-center justify-center text-xl font-black text-white shadow-inner">
-                  {selectedCampaignCandidate.name.split(' ').map(n=>n[0]).join('')}
+                <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-indigo-700 rounded-full flex items-center justify-center text-xl font-black text-white shadow-inner overflow-hidden shrink-0">
+                  {selectedCampaignCandidate.photoUrl ? (
+                    <img src={selectedCampaignCandidate.photoUrl} alt={selectedCampaignCandidate.name} className="w-full h-full object-cover" />
+                  ) : (
+                    selectedCampaignCandidate.name.split(' ').map(n=>n[0]).join('')
+                  )}
                 </div>
                 <div>
                   <h3 className="text-2xl font-black text-slate-800">{selectedCampaignCandidate.name}</h3>
@@ -750,15 +824,71 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">
                     Candidate Campaign Statement / Biography
                   </span>
-                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-slate-600 text-sm font-medium leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto">
+                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-slate-650 text-sm font-medium leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto">
                     {selectedCampaignCandidate.bio || "This candidate hasn't registered a biography yet."}
                   </div>
                 </div>
+
+                {/* Slogan */}
+                {selectedCampaignCandidate.campaignText && (
+                  <div className="p-3 bg-indigo-50/75 border-l-4 border-indigo-400 text-xs font-serif italic text-indigo-950 rounded-r-xl">
+                    "{selectedCampaignCandidate.campaignText}"
+                  </div>
+                )}
+
+                {/* Poster */}
+                {selectedCampaignCandidate.campaignPicUrl && (
+                  <div>
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">🖼️ Campaign Poster</span>
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden aspect-video bg-slate-50">
+                      <img 
+                        src={selectedCampaignCandidate.campaignPicUrl} 
+                        alt="Campaign Poster" 
+                        className="w-full h-full object-cover" 
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Audio */}
+                {selectedCampaignCandidate.campaignAudioUrl && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <span className="block text-[9px] font-black text-indigo-700 uppercase tracking-widest mb-1.5">🔊 Audio Pitch</span>
+                    <audio 
+                      controls 
+                      src={selectedCampaignCandidate.campaignAudioUrl} 
+                      className="w-full h-8 outline-none" 
+                    />
+                  </div>
+                )}
+
+                {/* Video */}
+                {selectedCampaignCandidate.campaignVideoUrl && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <span className="block text-[9px] font-black text-indigo-700 uppercase tracking-widest mb-1.5">🎥 Campaign Video</span>
+                    {selectedCampaignCandidate.campaignVideoUrl.includes('youtube') || selectedCampaignCandidate.campaignVideoUrl.includes('youtu.be') ? (
+                      <div className="aspect-video w-full rounded-xl overflow-hidden shadow-sm">
+                        <iframe 
+                          src={selectedCampaignCandidate.campaignVideoUrl.replace('watch?v=', 'embed/').split('&')[0]} 
+                          title="Campaign Video" 
+                          className="w-full h-full border-0"
+                          allowFullScreen
+                        />
+                      </div>
+                    ) : (
+                      <video 
+                        controls 
+                        src={selectedCampaignCandidate.campaignVideoUrl} 
+                        className="w-full aspect-video rounded-xl" 
+                      />
+                    )}
+                  </div>
+                )}
 
                 <div className="p-3.5 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-indigo-700" />

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Plus, Users, Trash2, Edit, CheckCircle, XCircle, Search, Filter, Camera, Vote, Shield, User as UserIcon, Building2, Fingerprint, Activity, ShieldAlert, Check, RefreshCw, Key, Lock, FileSpreadsheet, Terminal } from 'lucide-react';
-import { Election, Candidate, ElectionStatus, UserRole, AppUser } from '../types';
+import { Election, Candidate, ElectionStatus, UserRole, AppUser, Institution } from '../types';
 import ElectionForm from './ElectionForm';
 import CountdownTimer from './CountdownTimer';
-import { getAllUsers, updateUserProfileRole, getAnonymousVotes, getVoteRecords } from '../services/firebase';
+import VoterTurnoutChart from './VoterTurnoutChart';
+import { getAllUsers, updateUserProfileRole, getAnonymousVotes, getVoteRecords, getInstitutions, createInstitution, deleteInstitution } from '../services/firebase';
 
 interface AdminDashboardProps {
   elections: Election[];
@@ -16,13 +17,25 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ elections, onAddElection, onEditElection, onDeleteElection, userRole, institutionId }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'elections' | 'users' | 'audit'>('elections');
+  const [activeTab, setActiveTab] = useState<'elections' | 'users' | 'audit' | 'schools'>('elections');
   const [searchTerm, setSearchTerm] = useState('');
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // Institutions/Schools states
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [loadingInstitutions, setLoadingInstitutions] = useState(false);
+  const [schoolSearchTerm, setSchoolSearchTerm] = useState('');
+  const [showAddSchoolForm, setShowAddSchoolForm] = useState(false);
+  const [newSchoolId, setNewSchoolId] = useState('');
+  const [newSchoolName, setNewSchoolName] = useState('');
+  const [newSchoolLocation, setNewSchoolLocation] = useState('');
+  const [editingSchoolId, setEditingSchoolId] = useState<string | null>(null);
+  const [schoolActionError, setSchoolActionError] = useState('');
+  const [schoolActionSuccess, setSchoolActionSuccess] = useState('');
 
   // Fraud Audit States
   const [anonVotes, setAnonVotes] = useState<any[]>([]);
@@ -41,6 +54,7 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
   const [updatingRoleState, setUpdatingRoleState] = useState(false);
   const [roleUpdateError, setRoleUpdateError] = useState<string>('');
   const [roleUpdateSuccess, setRoleUpdateSuccess] = useState<string>('');
+  const [auditExportSuccess, setAuditExportSuccess] = useState<string>('');
 
   useEffect(() => {
     if (selectedUserUid) {
@@ -63,9 +77,21 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
       return;
     }
 
-    if (targetRole === UserRole.MANAGER && (!targetInstitutionId || !targetInstitutionId.trim())) {
-      setRoleUpdateError('An Institution ID is required to assign the Manager role');
-      return;
+    let finalInstitutionId = targetInstitutionId?.trim();
+    if (targetRole === UserRole.MANAGER && (!finalInstitutionId || finalInstitutionId === 'default' || finalInstitutionId === 'N/A')) {
+      const promptValue = window.prompt('Please enter a valid Institution ID for this Manager:', '');
+      if (promptValue === null) {
+        setRoleUpdateError('An Institution ID is required to assign the Manager role');
+        return;
+      }
+      if (!promptValue.trim() || promptValue.trim() === 'default' || promptValue.trim() === 'N/A') {
+        const errorMsg = 'A valid Institution ID is required to assign the Manager role';
+        setRoleUpdateError(errorMsg);
+        alert(errorMsg);
+        return;
+      }
+      finalInstitutionId = promptValue.trim();
+      setTargetInstitutionId(finalInstitutionId);
     }
 
     setUpdatingRoleState(true);
@@ -73,7 +99,7 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
     setRoleUpdateSuccess('');
 
     try {
-      await updateUserProfileRole(selectedUserUid, targetRole, targetInstitutionId.trim() || undefined);
+      await updateUserProfileRole(selectedUserUid, targetRole, finalInstitutionId || undefined);
       setRoleUpdateSuccess(`Successfully modified user privileges!`);
       await loadUsers(); // Refresh Table
     } catch (err: any) {
@@ -84,15 +110,31 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
     }
   };
 
+  const loadInstitutions = async () => {
+    setLoadingInstitutions(true);
+    try {
+      const fetched = await getInstitutions();
+      setInstitutions(fetched);
+    } catch (err) {
+      console.error('Error loading institutions', err);
+    } finally {
+      setLoadingInstitutions(false);
+    }
+  };
+
   useEffect(() => {
     if (userRole === UserRole.ADMIN || userRole === UserRole.MANAGER) {
       loadUsers();
+      loadInstitutions();
       loadAuditLogs();
     }
   }, []);
 
   useEffect(() => {
     if (activeTab === 'users' && (userRole === UserRole.ADMIN || userRole === UserRole.MANAGER)) {
+      loadUsers();
+    } else if (activeTab === 'schools') {
+      loadInstitutions();
       loadUsers();
     } else if (activeTab === 'audit') {
       loadAuditLogs();
@@ -102,11 +144,36 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
   const loadAuditLogs = async () => {
     setLoadingAudit(true);
     try {
-      const elecId = selectedAuditElection === 'all' ? undefined : selectedAuditElection;
-      const [votes, records] = await Promise.all([
-        getAnonymousVotes(elecId),
-        getVoteRecords(elecId)
-      ]);
+      let votes: any[] = [];
+      let records: any[] = [];
+
+      if (userRole === UserRole.MANAGER && selectedAuditElection === 'all') {
+        const promises = elections.map(async (e) => {
+          try {
+            const [v, r] = await Promise.all([
+              getAnonymousVotes(e.id),
+              getVoteRecords(e.id)
+            ]);
+            return { v, r };
+          } catch (e_err) {
+            console.warn(`Failed to fetch audit for election ${e.id}`, e_err);
+            return { v: [], r: [] };
+          }
+        });
+        const results = await Promise.all(promises);
+        results.forEach(res => {
+          votes = [...votes, ...res.v];
+          records = [...records, ...res.r];
+        });
+      } else {
+        const elecId = selectedAuditElection === 'all' ? undefined : selectedAuditElection;
+        const [v, r] = await Promise.all([
+          getAnonymousVotes(elecId),
+          getVoteRecords(elecId)
+        ]);
+        votes = v;
+        records = r;
+      }
       setAnonVotes(votes);
       setVoteRecords(records);
     } catch (err) {
@@ -196,6 +263,8 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setAuditExportSuccess('Audit logs exported successfully! Check your downloads folder.');
+      setTimeout(() => setAuditExportSuccess(''), 4000);
     } catch (err) {
       console.error('Failed to export CSV', err);
       alert('Failed to generate export file. Please check console.');
@@ -214,10 +283,10 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
   const handleUpdateUserRole = async (uid: string, role: UserRole, instId?: string) => {
     let finalInstId = instId;
     if (role === UserRole.MANAGER && (!finalInstId || finalInstId.trim() === '' || finalInstId === 'default' || finalInstId === 'N/A')) {
-      const newInstId = window.prompt('Please enter the Institution ID for this Manager:', finalInstId || '');
+      const newInstId = window.prompt('Please enter a valid Institution ID for this Manager:', '');
       if (newInstId === null) return; // Cancelled
-      if (!newInstId.trim()) {
-        alert('Institution ID is required for Managers');
+      if (!newInstId.trim() || newInstId.trim() === 'default' || newInstId.trim() === 'N/A') {
+        alert('A valid Institution ID is required for Managers');
         return;
       }
       finalInstId = newInstId.trim();
@@ -287,7 +356,7 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
 
       {/* Tab Switcher */}
       {(userRole === UserRole.ADMIN || userRole === UserRole.MANAGER) && (
-        <div className="flex bg-white rounded-2xl p-1.5 border border-slate-200 shadow-sm w-fit mx-auto gap-1">
+        <div className="flex bg-white rounded-2xl p-1.5 border border-slate-200 shadow-sm w-fit mx-auto gap-1 flex-wrap justify-center">
           <button 
             onClick={() => setActiveTab('elections')}
             className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${
@@ -297,6 +366,16 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
             }`}
           >
             Elections
+          </button>
+          <button 
+            onClick={() => setActiveTab('schools')}
+            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${
+              activeTab === 'schools' 
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
+            }`}
+          >
+            Schools & Institutions
           </button>
           <button 
             onClick={() => setActiveTab('users')}
@@ -322,7 +401,9 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
       )}
 
       {activeTab === 'elections' ? (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div className="space-y-8">
+          <VoterTurnoutChart elections={elections} totalUsersCount={users.length} />
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-black text-slate-800 tracking-tight">
@@ -467,6 +548,286 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
             </div>
           )}
         </div>
+        </div>
+      ) : activeTab === 'schools' ? (
+        <div className="space-y-8 animate-fade-in">
+          {/* Header Panel */}
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                  <Building2 className="w-6 h-6 text-indigo-600" />
+                  Schools & Teachers
+                </h2>
+                <p className="text-sm text-slate-500 font-medium">Manage schools/institutions and their assigned managers/teachers</p>
+              </div>
+              <div className="flex gap-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search schools or locations..."
+                    className="pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-64"
+                    value={schoolSearchTerm}
+                    onChange={(e) => setSchoolSearchTerm(e.target.value)}
+                  />
+                </div>
+                {userRole === UserRole.ADMIN && (
+                  <button 
+                    onClick={() => {
+                      setNewSchoolId('');
+                      setNewSchoolName('');
+                      setNewSchoolLocation('');
+                      setEditingSchoolId(null);
+                      setSchoolActionError('');
+                      setSchoolActionSuccess('');
+                      setShowAddSchoolForm(true);
+                    }}
+                    className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
+                  >
+                    <Plus className="w-4 h-4" /> Add School
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* In-Line or Dialog Adding Form Modal */}
+            {showAddSchoolForm && (
+              <div className="p-8 bg-indigo-50/40 border-b border-slate-200 text-left animate-slide-down">
+                <h3 className="text-md font-black text-slate-800 mb-4 flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-indigo-600" />
+                  {editingSchoolId ? 'Modify School / Institution' : 'Register New School / Institution'}
+                </h3>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  setSchoolActionError('');
+                  setSchoolActionSuccess('');
+                  if (!newSchoolId.trim()) {
+                    setSchoolActionError('School ID is required (e.g. SCH-78214)');
+                    return;
+                  }
+                  if (!newSchoolName.trim()) {
+                    setSchoolActionError('School Name is required');
+                    return;
+                  }
+                  if (!newSchoolLocation.trim()) {
+                    setSchoolActionError('Location is required');
+                    return;
+                  }
+
+                  try {
+                    await createInstitution(newSchoolId.trim(), newSchoolName.trim(), newSchoolLocation.trim());
+                    setSchoolActionSuccess(`Successfully ${editingSchoolId ? 'updated' : 'registered'} school profile!`);
+                    setShowAddSchoolForm(false);
+                    await loadInstitutions();
+                  } catch (err: any) {
+                    setSchoolActionError(err?.message || 'Failed to save school');
+                  }
+                }} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">School ID / Code</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. SCH-99238"
+                      value={newSchoolId}
+                      onChange={(e) => setNewSchoolId(e.target.value)}
+                      disabled={!!editingSchoolId}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">School Name</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Greenfield High School"
+                      value={newSchoolName}
+                      onChange={(e) => setNewSchoolName(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Location (City/Region)</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Nairobi"
+                      value={newSchoolLocation}
+                      onChange={(e) => setNewSchoolLocation(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="md:col-span-3 flex justify-end gap-3 mt-2">
+                    <button 
+                      type="button" 
+                      onClick={() => setShowAddSchoolForm(false)}
+                      className="px-5 py-2 hover:bg-slate-100 text-slate-500 text-xs font-bold rounded-xl border border-transparent"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition shadow-lg shadow-indigo-100"
+                    >
+                      {editingSchoolId ? 'Save Changes' : 'Register Institution'}
+                    </button>
+                  </div>
+                </form>
+                {schoolActionError && <p className="text-rose-600 text-xs font-bold mt-2">❌ {schoolActionError}</p>}
+                {schoolActionSuccess && <p className="text-emerald-600 text-xs font-bold mt-2">✓ {schoolActionSuccess}</p>}
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50">
+                    <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">#</th>
+                    <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">School Name</th>
+                    <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">School ID</th>
+                    <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Teachers Assigned</th>
+                    <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {institutions.filter(inst => 
+                    inst.name.toLowerCase().includes(schoolSearchTerm.toLowerCase()) ||
+                    inst.id.toLowerCase().includes(schoolSearchTerm.toLowerCase()) ||
+                    inst.location.toLowerCase().includes(schoolSearchTerm.toLowerCase())
+                  ).map((school, idx) => {
+                    // Match assigned managers / teachers
+                    const assignedManagers = users.filter(u => u.institutionId === school.id && u.role === UserRole.MANAGER);
+                    
+                    // Generate colors & initials
+                    const words = school.name.split(' ');
+                    const initials = (words[0]?.[0] || '') + (words[1]?.[0] || words[0]?.[1] || '');
+                    
+                    let brandBg = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                    let badgeRing = 'ring-indigo-100';
+                    if (school.id === 'SCH-78214') {
+                      brandBg = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+                      badgeRing = 'ring-emerald-100';
+                    } else if (school.id === 'SCH-45928') {
+                      brandBg = 'bg-amber-50 text-amber-800 border-amber-200';
+                      badgeRing = 'ring-amber-100';
+                    } else if (school.id === 'SCH-96137') {
+                      brandBg = 'bg-rose-50 text-rose-800 border-rose-200';
+                      badgeRing = 'ring-rose-100';
+                    } else if (school.id === 'SCH-31459') {
+                      brandBg = 'bg-teal-50 text-teal-800 border-teal-200';
+                      badgeRing = 'ring-teal-100';
+                    } else if (school.id === 'SCH-62783') {
+                      brandBg = 'bg-blue-50 text-blue-800 border-blue-200';
+                      badgeRing = 'ring-blue-100';
+                    } else {
+                      const colors = [
+                        'bg-violet-50 text-violet-800 border-violet-200',
+                        'bg-sky-50 text-sky-800 border-sky-200',
+                        'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200'
+                      ];
+                      brandBg = colors[idx % colors.length];
+                    }
+
+                    return (
+                      <tr key={school.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-8 py-6 text-sm text-slate-400 font-bold">
+                          {idx + 1}
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm border-2 shadow-sm font-mono shrink-0 ring-4 ${badgeRing} ${brandBg}`}>
+                              {initials.toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-800 text-md">{school.name}</div>
+                              <div className="text-xs text-slate-400 font-semibold">{school.location}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="text-xs font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 inline-block font-mono">
+                            {school.id}
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4 flex-wrap">
+                            {assignedManagers.map((manager) => (
+                              <div key={manager.uid} className="flex items-center gap-2 bg-slate-50 border border-slate-200/60 p-1.5 pr-3 rounded-2xl">
+                                <div className="w-7 h-7 rounded-xl bg-white border border-slate-200 text-slate-500 overflow-hidden flex items-center justify-center flex-shrink-0">
+                                  {manager.passportPhotoUrl ? (
+                                    <img 
+                                      src={manager.passportPhotoUrl} 
+                                      alt="mgr avatar" 
+                                      className="w-full h-full object-cover" 
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <UserIcon className="w-3.5 h-3.5" />
+                                  )}
+                                </div>
+                                <div className="text-left leading-none">
+                                  <span className="text-xs font-bold text-slate-700 block">{manager.displayName}</span>
+                                  <span className="text-[9px] text-slate-400 font-bold block mt-0.5">Teacher/Manager</span>
+                                </div>
+                              </div>
+                            ))}
+                            {assignedManagers.length === 0 && (
+                              <span className="text-xs text-slate-400 font-semibold italic">No managers assigned yet</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          {userRole === UserRole.ADMIN && (
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => {
+                                  setNewSchoolId(school.id);
+                                  setNewSchoolName(school.name);
+                                  setNewSchoolLocation(school.location);
+                                  setEditingSchoolId(school.id);
+                                  setSchoolActionError('');
+                                  setSchoolActionSuccess('');
+                                  setShowAddSchoolForm(true);
+                                }}
+                                className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-slate-200 hover:border-indigo-200"
+                                title="Edit School"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (window.confirm(`Are you sure you want to delete ${school.name}? This will remove its registration code.`)) {
+                                    try {
+                                      await deleteInstitution(school.id);
+                                      await loadInstitutions();
+                                    } catch (err: any) {
+                                      alert(err?.message || 'Could not delete school');
+                                    }
+                                  }
+                                }}
+                                className="p-2 text-slate-600 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all border border-slate-200 hover:border-red-200"
+                                title="Delete School"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                          {userRole !== UserRole.ADMIN && (
+                            <span className="text-[10px] font-black uppercase text-slate-300">Read-Only</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {institutions.length === 0 && !loadingInstitutions && (
+              <div className="p-12 text-center text-slate-400 font-medium">
+                No institutions registered yet.
+              </div>
+            )}
+          </div>
+        </div>
       ) : activeTab === 'users' ? (
         <div className="space-y-8 animate-fade-in">
           {/* Section: Manage User Roles Quick Panel */}
@@ -539,146 +900,160 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
             </div>
 
             {/* Quick action controls form (Right 7 cols) */}
-            <form onSubmit={submitQuickRoleChange} className="lg:col-span-12 xl:col-span-7 bg-white border border-slate-200 rounded-[2.5rem] p-6 md:p-8 shadow-sm space-y-6">
-              <div>
-                <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-                  <Key className="w-5 h-5 text-indigo-600" />
-                  Grant or Revoke Privileges
-                </h3>
-                <p className="text-xs text-slate-400 font-bold mt-1">
-                  Modify system roles and institution keys dynamically
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {/* Select User Field */}
-                <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-black uppercase tracking-wider text-slate-400 block ml-1">
-                    Select Identity Target
-                  </label>
-                  <select
-                    value={selectedUserUid}
-                    onChange={(e) => setSelectedUserUid(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="">-- Choose a user to manage --</option>
-                    {users.map(u => (
-                      <option key={u.uid} value={u.uid}>
-                        {u.displayName || 'Anonymous'} ({u.email}) - Current: {(u.role || '').toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
+            {userRole === UserRole.ADMIN ? (
+              <form onSubmit={submitQuickRoleChange} className="lg:col-span-12 xl:col-span-7 bg-white border border-slate-200 rounded-[2.5rem] p-6 md:p-8 shadow-sm space-y-6">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
+                    <Key className="w-5 h-5 text-indigo-600" />
+                    Grant or Revoke Privileges
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    Modify system roles and institution keys dynamically
+                  </p>
                 </div>
 
-                {/* Selected User Details Box if active */}
-                {selectedUserUid && (
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 bg-white">
-                        {users.find(u => u.uid === selectedUserUid)?.passportPhotoUrl ? (
-                          <img 
-                            src={users.find(u => u.uid === selectedUserUid)?.passportPhotoUrl} 
-                            alt="avatar" 
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-400 bg-slate-50">
-                            <UserIcon className="w-5 h-5" />
-                          </div>
-                        )}
+                <div className="space-y-4">
+                  {/* Select User Field */}
+                  <div className="space-y-1.5 text-left">
+                    <label className="text-xs font-black uppercase tracking-wider text-slate-400 block ml-1">
+                      Select Identity Target
+                    </label>
+                    <select
+                      value={selectedUserUid}
+                      onChange={(e) => setSelectedUserUid(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="">-- Choose a user to manage --</option>
+                      {users.map(u => (
+                        <option key={u.uid} value={u.uid}>
+                          {u.displayName || 'Anonymous'} ({u.email}) - Current: {(u.role || '').toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Selected User Details Box if active */}
+                  {selectedUserUid && (
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between flex-wrap gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 bg-white">
+                          {users.find(u => u.uid === selectedUserUid)?.passportPhotoUrl ? (
+                            <img 
+                              src={users.find(u => u.uid === selectedUserUid)?.passportPhotoUrl} 
+                              alt="avatar" 
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400 bg-slate-50">
+                              <UserIcon className="w-5 h-5" />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <span className="block text-xs font-black text-slate-700">
+                            {users.find(u => u.uid === selectedUserUid)?.displayName || 'Anonymous'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold block">
+                            Current status: <span className="text-indigo-600 font-extrabold">{users.find(u => u.uid === selectedUserUid)?.role.toUpperCase()}</span>
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="block text-xs font-black text-slate-700">
-                          {users.find(u => u.uid === selectedUserUid)?.displayName || 'Anonymous'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-bold block">
-                          Current status: <span className="text-indigo-600 font-extrabold">{users.find(u => u.uid === selectedUserUid)?.role.toUpperCase()}</span>
-                        </span>
+                      
+                      <div className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100">
+                        ID: {users.find(u => u.uid === selectedUserUid)?.studentId || 'N/A'}
                       </div>
                     </div>
-                    
-                    <div className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100">
-                      ID: {users.find(u => u.uid === selectedUserUid)?.studentId || 'N/A'}
+                  )}
+
+                  {/* Target Role Selector Options */}
+                  <div className="space-y-1.5 text-left">
+                    <label className="text-xs font-black uppercase tracking-wider text-slate-400 block ml-1">
+                      Assign New Role
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.values(UserRole).map((r) => {
+                        const isActive = targetRole === r;
+                        return (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setTargetRole(r)}
+                            className={`py-3 rounded-2xl border text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-1.5 ${
+                              isActive 
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-150' 
+                                : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border-slate-200'
+                            }`}
+                          >
+                            {r === UserRole.ADMIN && <Shield className="w-4 h-4" />}
+                            {r === UserRole.MANAGER && <Building2 className="w-4 h-4" />}
+                            {r === UserRole.VOTER && <Users className="w-4 h-4" />}
+                            {r.replace('_', ' ')}
+                          </button>
+                        );
+                      })}
                     </div>
+                  </div>
+
+                  {/* Target Institution ID */}
+                  <div className="space-y-1.5 text-left">
+                    <label className="text-xs font-black uppercase tracking-wider text-slate-400 block ml-1">
+                      Institution Identifier (Required for Managers)
+                    </label>
+                    <div className="relative">
+                      <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="e.g. school-101, default"
+                        value={targetInstitutionId}
+                        onChange={(e) => setTargetInstitutionId(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status responses inside form */}
+                {roleUpdateError && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 font-extrabold text-[10px] uppercase tracking-wider rounded-xl text-left">
+                    ❌ {roleUpdateError}
                   </div>
                 )}
 
-                {/* Target Role Selector Options */}
-                <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-black uppercase tracking-wider text-slate-400 block ml-1">
-                    Assign New Role
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {Object.values(UserRole).map((r) => {
-                      const isActive = targetRole === r;
-                      return (
-                        <button
-                          key={r}
-                          type="button"
-                          onClick={() => setTargetRole(r)}
-                          className={`py-3 rounded-2xl border text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-1.5 ${
-                            isActive 
-                              ? 'bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-150' 
-                              : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border-slate-200'
-                          }`}
-                        >
-                          {r === UserRole.ADMIN && <Shield className="w-4 h-4" />}
-                          {r === UserRole.MANAGER && <Building2 className="w-4 h-4" />}
-                          {r === UserRole.VOTER && <Users className="w-4 h-4" />}
-                          {r.replace('_', ' ')}
-                        </button>
-                      );
-                    })}
+                {roleUpdateSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-700 font-extrabold text-[10px] uppercase tracking-wider rounded-xl text-left">
+                    ✓ {roleUpdateSuccess}
                   </div>
-                </div>
+                )}
 
-                {/* Target Institution ID */}
-                <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-black uppercase tracking-wider text-slate-400 block ml-1">
-                    Institution Identifier (Required for Managers)
-                  </label>
-                  <div className="relative">
-                    <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="e.g. school-101, default"
-                      value={targetInstitutionId}
-                      onChange={(e) => setTargetInstitutionId(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
+                {/* Action Buttons */}
+                <div className="flex gap-3 justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={updatingRoleState || !selectedUserUid}
+                    className={`px-6 py-3 rounded-2xl font-black text-xs flex items-center gap-2 transition-all ${
+                      selectedUserUid 
+                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-100' 
+                        : 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300'
+                    }`}
+                  >
+                    {updatingRoleState ? 'Saving...' : 'Apply Status Modifications'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="lg:col-span-12 xl:col-span-7 bg-white border border-slate-200 rounded-[2.5rem] p-8 md:p-10 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
+                <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full">
+                  <Shield className="w-8 h-8" />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-800 text-lg">School Voter Database</h4>
+                  <p className="text-xs text-slate-500 font-semibold max-w-sm mx-auto mt-1 leading-relaxed">
+                    As an authorized Institution Manager, you have permission to view, count, and audit voter registrations listed under school code <b className="text-indigo-600 font-extrabold">{institutionId}</b>. Global role modification is reserved for central Admins.
+                  </p>
                 </div>
               </div>
-
-              {/* Status responses inside form */}
-              {roleUpdateError && (
-                <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 font-extrabold text-[10px] uppercase tracking-wider rounded-xl text-left">
-                  ❌ {roleUpdateError}
-                </div>
-              )}
-
-              {roleUpdateSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-700 font-extrabold text-[10px] uppercase tracking-wider rounded-xl text-left">
-                  ✓ {roleUpdateSuccess}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-3 justify-end pt-2">
-                <button
-                  type="submit"
-                  disabled={updatingRoleState || !selectedUserUid}
-                  className={`px-6 py-3 rounded-2xl font-black text-xs flex items-center gap-2 transition-all ${
-                    selectedUserUid 
-                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-100' 
-                      : 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300'
-                  }`}
-                >
-                  {updatingRoleState ? 'Saving...' : 'Apply Status Modifications'}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
 
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
@@ -746,21 +1121,33 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
                         </div>
                       </td>
                       <td className="px-8 py-6">
-                        <div className="flex gap-1.5 flex-wrap">
-                          {Object.values(UserRole).map((role) => (
-                            <button
-                              key={role}
-                              onClick={() => handleUpdateUserRole(u.uid, role, u.institutionId)}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
-                                u.role === role
-                                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-                                  : 'bg-slate-50 text-slate-600 border-slate-300 hover:border-indigo-300 hover:bg-indigo-50/50'
-                              }`}
-                            >
-                              {role.replace('_', ' ')}
-                            </button>
-                          ))}
-                        </div>
+                        {userRole === UserRole.ADMIN ? (
+                          <div className="flex gap-1.5 flex-wrap">
+                            {Object.values(UserRole).map((role) => (
+                              <button
+                                key={role}
+                                onClick={() => handleUpdateUserRole(u.uid, role, u.institutionId)}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                  u.role === role
+                                    ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                    : 'bg-slate-50 text-slate-600 border-slate-300 hover:border-indigo-300 hover:bg-indigo-50/50'
+                                }`}
+                              >
+                                {role.replace('_', ' ')}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase border tracking-wider inline-block ${
+                            u.role === UserRole.ADMIN 
+                              ? 'bg-rose-50 text-rose-700 border-rose-100' 
+                              : u.role === UserRole.MANAGER 
+                              ? 'bg-amber-50 text-amber-700 border-amber-100' 
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                          }`}>
+                            {(u.role || '').toUpperCase()}
+                          </span>
+                        )}
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-2">
@@ -852,6 +1239,19 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
               </button>
             </div>
           </div>
+
+          {auditExportSuccess && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-3xl p-4 flex items-center gap-3 shadow-md"
+            >
+              <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-xl">
+                <Check className="w-4 h-4 text-emerald-700" />
+              </div>
+              <span className="font-bold text-sm">{auditExportSuccess}</span>
+            </motion.div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Stat Box 1: Verified ledger code matches */}

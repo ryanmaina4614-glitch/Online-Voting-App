@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
-import { Plus, Trash2, Camera, X, Check, Save, Loader2, AlertCircle, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Camera, X, Check, Save, Loader2, AlertCircle, GripVertical, Upload, Paperclip, Film } from 'lucide-react';
 import { Candidate, ElectionStatus, Election, UserRole } from '../types';
-import { uploadCandidatePhoto } from '../services/firebase';
+import { uploadCandidatePhoto, uploadCampaignFile } from '../services/firebase';
 import { getCorrectedStatus } from '../utils';
 
 interface ElectionFormProps {
@@ -31,12 +31,21 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
   const [institutionId, setInstitutionId] = useState(initialData?.institutionId || propInstitutionId || '');
   const [startDate, setStartDate] = useState(formatDateTimeLocal(initialData?.startDate));
   const [endDate, setEndDate] = useState(formatDateTimeLocal(initialData?.endDate));
+  const [campaignStartDate, setCampaignStartDate] = useState(formatDateTimeLocal(initialData?.campaignStartDate));
+  const [campaignEndDate, setCampaignEndDate] = useState(formatDateTimeLocal(initialData?.campaignEndDate));
   const [status, setStatus] = useState<ElectionStatus>(initialData?.status || ElectionStatus.UPCOMING);
-  const [candidates, setCandidates] = useState<Partial<Candidate>[]>(initialData?.candidates || [
-    { id: '1', name: '', bio: '', votesCount: 0 }
-  ]);
+  const [candidates, setCandidates] = useState<Partial<Candidate>[]>(() => {
+    if (initialData?.candidates && initialData.candidates.length > 0) {
+      return initialData.candidates;
+    }
+    return [
+      { id: '1', name: '', bio: '', votesCount: 0, campaignText: '', campaignPicUrl: '', campaignAudioUrl: '', campaignVideoUrl: '' },
+      { id: '2', name: '', bio: '', votesCount: 0, campaignText: '', campaignPicUrl: '', campaignAudioUrl: '', campaignVideoUrl: '' }
+    ];
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [uploadingMediaIndex, setUploadingMediaIndex] = useState<{index: number, field: string} | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // Auto-set status based on dates
@@ -63,8 +72,16 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
       }
     }
 
-    if (candidates.length < 1) {
-      errors.candidates = 'At least one candidate is required';
+    if (campaignStartDate && campaignEndDate) {
+      const cStart = new Date(campaignStartDate);
+      const cEnd = new Date(campaignEndDate);
+      if (cEnd <= cStart) {
+        errors.campaignEndDate = 'Campaign end date must be after campaign start date';
+      }
+    }
+
+    if (candidates.length < 2) {
+      errors.candidates = 'An election must have more than one candidate (at least two candidates are required)';
     }
 
     candidates.forEach((c, idx) => {
@@ -80,7 +97,7 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
   const handleAddCandidate = () => {
     setCandidates([
       ...candidates,
-      { id: Date.now().toString(), name: '', bio: '', votesCount: 0 }
+      { id: Date.now().toString(), name: '', bio: '', votesCount: 0, campaignText: '', campaignPicUrl: '', campaignAudioUrl: '', campaignVideoUrl: '' }
     ]);
   };
 
@@ -124,6 +141,24 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
     }
   };
 
+  const handleCampaignDocUpload = async (index: number, field: 'campaignPicUrl' | 'campaignAudioUrl' | 'campaignVideoUrl', event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingMediaIndex({ index, field });
+    try {
+      const url = await uploadCampaignFile(file);
+      const newCandidates = [...candidates];
+      newCandidates[index] = { ...newCandidates[index], [field]: url };
+      setCandidates(newCandidates);
+    } catch (error) {
+      console.error(`${field} upload failed`, error);
+      alert('Failed to upload campaign document file. Please try again.');
+    } finally {
+      setUploadingMediaIndex(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -140,6 +175,8 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
         endDate: new Date(endDate).toISOString(),
         status,
         candidates: candidates as Candidate[],
+        campaignStartDate: campaignStartDate ? new Date(campaignStartDate).toISOString() : undefined,
+        campaignEndDate: campaignEndDate ? new Date(campaignEndDate).toISOString() : undefined,
       });
     } catch (error) {
       console.error('Submit failed', error);
@@ -280,6 +317,51 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
                 )}
               </div>
             </div>
+
+            {/* Campaign period timing set by manager */}
+            <div className="bg-slate-50 border border-slate-200/50 rounded-2xl p-4 md:p-5 space-y-4">
+              <span className="block text-[11px] font-black text-indigo-600 uppercase tracking-widest">📣 Campaign Period Setup (Optional)</span>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Campaign Starts (Optional)</label>
+                  <input 
+                    type="datetime-local" 
+                    value={campaignStartDate}
+                    onChange={(e) => {
+                      setCampaignStartDate(e.target.value);
+                      if (fieldErrors.campaignStartDate) setFieldErrors(prev => ({ ...prev, campaignStartDate: '' }));
+                    }}
+                    className={`w-full px-4 py-3 bg-white border rounded-xl font-bold text-xs focus:ring-4 focus:ring-indigo-100 transition-all focus:outline-none ${
+                        fieldErrors.campaignStartDate ? 'border-red-500 focus:border-red-600' : 'border-slate-200 focus:border-indigo-600'
+                    }`}
+                  />
+                  {fieldErrors.campaignStartDate && (
+                    <span className="text-[9px] text-red-500 font-bold mt-1 ml-1 block italic">{fieldErrors.campaignStartDate}</span>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Campaign Ends (Optional)</label>
+                  <input 
+                    type="datetime-local" 
+                    value={campaignEndDate}
+                    onChange={(e) => {
+                      setCampaignEndDate(e.target.value);
+                      if (fieldErrors.campaignEndDate) setFieldErrors(prev => ({ ...prev, campaignEndDate: '' }));
+                    }}
+                    className={`w-full px-4 py-3 bg-white border rounded-xl font-bold text-xs focus:ring-4 focus:ring-indigo-100 transition-all focus:outline-none ${
+                        fieldErrors.campaignEndDate ? 'border-red-500 focus:border-red-650' : 'border-slate-200 focus:border-indigo-600'
+                    }`}
+                  />
+                  {fieldErrors.campaignEndDate && (
+                    <span className="text-[9px] text-red-500 font-bold mt-1 ml-1 block italic">{fieldErrors.campaignEndDate}</span>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold leading-normal">
+                Voters within this institution can access high-fidelity candidate profile pitches, pictures, videos and audio records during this set window.
+              </p>
+            </div>
+
             <div>
               <label className="block text-sm font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center justify-between">
                 Status
@@ -346,7 +428,7 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
                     </div>
 
                     <div className="flex gap-6 flex-1">
-                      <div className="shrink-0">
+                      <div className="shrink-0 flex flex-col items-center">
                         <div className="relative w-24 h-24 rounded-2xl bg-white border border-slate-200 overflow-hidden group/photo">
                           {candidate.photoUrl ? (
                             <img src={candidate.photoUrl} alt="candidate" className="w-full h-full object-cover" />
@@ -372,21 +454,51 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
                       </div>
 
                       <div className="flex-1 space-y-4">
-                        <div>
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Candidate Name</label>
-                          <input 
-                            type="text" 
-                            value={candidate.name}
-                            onChange={(e) => handleCandidateChange(index, 'name', e.target.value)}
-                            placeholder="Full Name"
-                            className={`w-full px-4 py-2 bg-white border rounded-xl font-bold text-sm focus:outline-none focus:ring-4 focus:ring-indigo-50 transition-all text-slate-700 ${
-                              fieldErrors[`candidate_${index}_name`] ? 'border-red-500 focus:border-red-600' : 'border-slate-200 focus:border-indigo-500'
-                            }`}
-                          />
-                          {fieldErrors[`candidate_${index}_name`] && (
-                            <span className="text-[9px] text-red-500 font-bold ml-1 mt-1 block">{fieldErrors[`candidate_${index}_name`]}</span>
-                          )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Candidate Name</label>
+                            <input 
+                              type="text" 
+                              value={candidate.name}
+                              onChange={(e) => handleCandidateChange(index, 'name', e.target.value)}
+                              placeholder="Full Name"
+                              className={`w-full px-4 py-2 bg-white border rounded-xl font-bold text-sm focus:outline-none focus:ring-4 focus:ring-indigo-50 transition-all text-slate-700 ${
+                                fieldErrors[`candidate_${index}_name`] ? 'border-red-500 focus:border-red-600' : 'border-slate-200 focus:border-indigo-500'
+                              }`}
+                            />
+                            {fieldErrors[`candidate_${index}_name`] && (
+                              <span className="text-[9px] text-red-500 font-bold ml-1 mt-1 block">{fieldErrors[`candidate_${index}_name`]}</span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Photo URL or Upload</label>
+                            <div className="flex gap-2">
+                              <input 
+                                type="text" 
+                                value={candidate.photoUrl || ''}
+                                onChange={(e) => handleCandidateChange(index, 'photoUrl' as any, e.target.value)}
+                                placeholder="Paste image URL..."
+                                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-500 transition-all text-slate-700"
+                              />
+                              <label className="cursor-pointer shrink-0 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs flex items-center gap-1 transition-colors border border-indigo-200 shadow-sm">
+                                {uploadingIndex === index ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Camera className="w-4 h-4" />
+                                )}
+                                <span>Upload</span>
+                                <input 
+                                  type="file" 
+                                  accept="image/*" 
+                                  className="hidden" 
+                                  onChange={(e) => handlePhotoUpload(index, e)}
+                                />
+                              </label>
+                            </div>
+                          </div>
                         </div>
+
                         <div>
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Biography / Manifesto</label>
                           <textarea 
@@ -396,6 +508,171 @@ export default function ElectionForm({ initialData, onSubmit, onCancel, userRole
                             rows={3}
                             className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-500 transition-all resize-none text-slate-600"
                           />
+                        </div>
+
+                        {/* Candidate campaign media showcase variables */}
+                        <div className="bg-white/60 rounded-2xl border border-dashed border-indigo-150 p-4 space-y-4">
+                          <span className="block text-[10px] font-black text-indigo-650 uppercase tracking-wider flex items-center gap-1.5">
+                            📣 Campaign Document & Multimedia Uploads (Optional)
+                          </span>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                            {/* Campaign Poster File Upload */}
+                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/50 flex flex-col justify-between space-y-2">
+                              <div>
+                                <label className="block text-[9px] font-black text-slate-650 uppercase tracking-widest mb-1 ml-1 flex items-center gap-1">
+                                  📸 Campaign Image / Poster File (Optional)
+                                </label>
+                                <p className="text-[9px] text-slate-450 font-semibold mb-2.5 ml-1 leading-tight">Upload candidate manifesto poster (JPG / PNG)</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="cursor-pointer bg-white hover:bg-slate-100 transition-all border border-slate-200 px-3 py-2 rounded-xl text-slate-700 text-xs font-black flex items-center gap-1.5 flex-1 shadow-sm">
+                                  <Upload className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span className="truncate">
+                                    {uploadingMediaIndex?.index === index && uploadingMediaIndex?.field === 'campaignPicUrl' 
+                                      ? 'Uploading poster...' 
+                                      : (candidate.campaignPicUrl ? '📁 Change Poster File' : `Select & Upload Poster`)
+                                    }
+                                  </span>
+                                  <input 
+                                    type="file" 
+                                    accept="image/*"
+                                    disabled={uploadingMediaIndex !== null}
+                                    onChange={(e) => handleCampaignDocUpload(index, 'campaignPicUrl', e)}
+                                    className="hidden"
+                                  />
+                                </label>
+                                {candidate.campaignPicUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCandidateChange(index, 'campaignPicUrl' as any, '')}
+                                    className="p-2 border border-slate-200 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition"
+                                    title="Remove campaign poster"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                              {candidate.campaignPicUrl && (
+                                <a href={candidate.campaignPicUrl} target="_blank" rel="referrerPolicy" className="text-[10px] text-indigo-600 hover:underline font-extrabold truncate block ml-1 pt-1">
+                                  🔗 View uploaded poster
+                                </a>
+                              )}
+                            </div>
+
+                            {/* Campaign Audio File Upload */}
+                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/50 flex flex-col justify-between space-y-2">
+                              <div>
+                                <label className="block text-[9px] font-black text-slate-650 uppercase tracking-widest mb-1 ml-1 flex items-center gap-1">
+                                  🎵 Campaign Audio Manifesto (Optional)
+                                </label>
+                                <p className="text-[9px] text-slate-455 font-semibold mb-2.5 ml-1 leading-tight">Upload voice recording or audio intro (MP3 / WAV)</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="cursor-pointer bg-white hover:bg-slate-100 transition-all border border-slate-200 px-3 py-2 rounded-xl text-slate-700 text-xs font-black flex items-center gap-1.5 flex-1 shadow-sm">
+                                  <Paperclip className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span className="truncate">
+                                    {uploadingMediaIndex?.index === index && uploadingMediaIndex?.field === 'campaignAudioUrl' 
+                                      ? 'Uploading audio...' 
+                                      : (candidate.campaignAudioUrl ? '📁 Change Audio File' : `Select & Upload Audio`)
+                                    }
+                                  </span>
+                                  <input 
+                                    type="file" 
+                                    accept="audio/*"
+                                    disabled={uploadingMediaIndex !== null}
+                                    onChange={(e) => handleCampaignDocUpload(index, 'campaignAudioUrl', e)}
+                                    className="hidden"
+                                  />
+                                </label>
+                                {candidate.campaignAudioUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCandidateChange(index, 'campaignAudioUrl' as any, '')}
+                                    className="p-2 border border-slate-200 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition cursor-pointer"
+                                    title="Remove campaign audio"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                              {candidate.campaignAudioUrl && (
+                                <a href={candidate.campaignAudioUrl} target="_blank" rel="referrerPolicy" className="text-[10px] text-indigo-600 hover:underline font-extrabold truncate block ml-1 pt-1">
+                                  🔗 Play uploaded audio pitch
+                                </a>
+                              )}
+                            </div>
+
+                            {/* Campaign Video File Upload */}
+                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/50 flex flex-col justify-between space-y-2 md:col-span-2">
+                              <div>
+                                <label className="block text-[9px] font-black text-slate-650 uppercase tracking-widest mb-1 ml-1 flex items-center gap-1">
+                                  🎥 Campaign Video Manifesto / Link (Optional)
+                                </label>
+                                <p className="text-[9px] text-slate-455 font-semibold mb-2 ml-1/2 leading-tight">Upload a campaign video (MP4) OR paste a YouTube embed link</p>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                                <div className="space-y-1">
+                                  <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest ml-1 mb-1">Option A: Upload Local MP4 File</span>
+                                  <div className="flex items-center gap-2">
+                                    <label className="cursor-pointer bg-white hover:bg-slate-100 transition-all border border-slate-200 px-3 py-2 rounded-xl text-slate-700 text-xs font-black flex items-center gap-1.5 flex-1 shadow-sm">
+                                      <Film className="w-3.5 h-3.5 text-indigo-500" />
+                                      <span className="truncate">
+                                        {uploadingMediaIndex?.index === index && uploadingMediaIndex?.field === 'campaignVideoUrl' 
+                                          ? 'Uploading video...' 
+                                          : (candidate.campaignVideoUrl && !candidate.campaignVideoUrl.includes('youtube') && !candidate.campaignVideoUrl.includes('embed') ? '📁 Video Uploaded' : 'Select Local Video file')
+                                        }
+                                      </span>
+                                      <input 
+                                        type="file" 
+                                        accept="video/*"
+                                        disabled={uploadingMediaIndex !== null}
+                                        onChange={(e) => handleCampaignDocUpload(index, 'campaignVideoUrl', e)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                    {candidate.campaignVideoUrl && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCandidateChange(index, 'campaignVideoUrl' as any, '')}
+                                        className="p-2 border border-slate-200 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition"
+                                        title="Remove campaign video"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest ml-1 mb-1">Option B: Or Paste Youtube/Video URL</span>
+                                  <input 
+                                    type="url" 
+                                    value={candidate.campaignVideoUrl || ''}
+                                    onChange={(e) => handleCandidateChange(index, 'campaignVideoUrl' as any, e.target.value)}
+                                    placeholder="https://youtube.com/embed/... or .mp4 link"
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700"
+                                  />
+                                </div>
+                              </div>
+                              {candidate.campaignVideoUrl && (
+                                <a href={candidate.campaignVideoUrl} target="_blank" rel="referrerPolicy" className="text-[10px] text-indigo-600 hover:underline font-extrabold truncate block ml-1 pt-1">
+                                  🔗 View linked or uploaded media video
+                                </a>
+                              )}
+                            </div>
+
+                            {/* Campaign Tagline or Brief Description */}
+                            <div className="md:col-span-2">
+                              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Campaign Tagline or Brief Slogan</label>
+                              <input 
+                                type="text" 
+                                value={candidate.campaignText || ''}
+                                onChange={(e) => handleCandidateChange(index, 'campaignText' as any, e.target.value)}
+                                placeholder="Vote for progress, integrity, and student development!"
+                                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all text-slate-700"
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>

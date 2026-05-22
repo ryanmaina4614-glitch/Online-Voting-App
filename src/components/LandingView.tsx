@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShieldCheck, Quote, Scale, BookOpen, CheckCircle, AlertTriangle, 
@@ -77,6 +77,14 @@ export default function LandingView({ onEnterDashboard, userDisplayName, institu
   const [acknowledgedRules, setAcknowledgedRules] = useState<Record<string, boolean>>({});
   const [showQuoteTip, setShowQuoteTip] = useState(true);
 
+  // Auto-switch quotes every 6 seconds with automatic timer reset on manual click
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSelectedQuoteIndex(prev => (prev + 1) % INTEGRITY_QUOTES.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [selectedQuoteIndex]);
+
   const toggleRule = (id: string) => {
     setAcknowledgedRules(prev => ({
       ...prev,
@@ -95,16 +103,16 @@ export default function LandingView({ onEnterDashboard, userDisplayName, institu
   };
 
   return (
-    <div className="relative rounded-[3rem] overflow-hidden p-6 md:p-8 animate-fade-in">
-      {/* 🗳️ Ambient Background Voters Image */}
-      <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
+    <div className="relative p-6 md:p-8 animate-fade-in">
+      {/* 🗳️ Ambient Background Voters Image - Spans entire page */}
+      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
         <img 
           src="/src/assets/images/voters_background_1779264283932.png" 
           alt="Modern Voters Background" 
           className="w-full h-full object-cover filter saturate-[0.8] brightness-[0.95]"
           referrerPolicy="no-referrer"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/20 via-slate-50/70 to-slate-50" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-100/10 via-slate-100/60 to-slate-100" />
       </div>
 
       <div className="relative z-10 space-y-12 py-4 text-left max-w-5xl mx-auto">

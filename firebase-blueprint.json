@@ -7,11 +7,12 @@
       "properties": {
         "email": { "type": "string" },
         "displayName": { "type": "string" },
-        "role": { "type": "string", "enum": ["voter", "admin"] },
+        "role": { "type": "string", "enum": ["voter", "admin", "manager"] },
         "votedElections": { "type": "array", "items": { "type": "string" } },
         "age": { "type": "number" },
         "classGroup": { "type": "string" },
-        "gender": { "type": "string" }
+        "gender": { "type": "string" },
+        "talkbackEnabled": { "type": "boolean" }
       },
       "required": ["email", "displayName", "role"]
     },
@@ -28,6 +29,8 @@
         "totalVotes": { "type": "number" },
         "creatorId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
+        "campaignStartDate": { "type": "string", "format": "date-time" },
+        "campaignEndDate": { "type": "string", "format": "date-time" },
         "candidates": {
           "type": "array",
           "items": {
@@ -37,7 +40,11 @@
               "name": { "type": "string" },
               "bio": { "type": "string" },
               "photoUrl": { "type": "string" },
-              "votesCount": { "type": "number" }
+              "votesCount": { "type": "number" },
+              "campaignText": { "type": "string" },
+              "campaignPicUrl": { "type": "string" },
+              "campaignAudioUrl": { "type": "string" },
+              "campaignVideoUrl": { "type": "string" }
             }
           }
         }
@@ -65,6 +72,31 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["electionId", "candidateId", "timestamp"]
+    },
+    "Institution": {
+      "title": "Institution",
+      "description": "Registered School or Institution details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "location"]
+    },
+    "BiometricActivityLog": {
+      "title": "Biometric Activity Log",
+      "description": "Security logs for biometric auth tracking",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "status": { "type": "string", "enum": ["success", "failed"] },
+        "errorMessage": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "displayName", "status", "timestamp"]
     }
   },
   "firestore": {
@@ -83,6 +115,14 @@
     "/anonymousVotes/{voteId}": {
       "schema": "AnonymousVote",
       "description": "Individual votes for results tracking"
+    },
+    "/institutions/{institutionId}": {
+      "schema": "Institution",
+      "description": "Registered schools and institutions"
+    },
+    "/biometricLogs/{logId}": {
+      "schema": "BiometricActivityLog",
+      "description": "Biometric registration/login access logs"
     }
   }
 }

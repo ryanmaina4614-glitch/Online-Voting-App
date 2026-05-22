@@ -13,8 +13,105 @@
 
 @layer base {
   body {
-    @apply bg-slate-100 text-slate-900 font-sans antialiased;
+    @apply bg-slate-100 text-slate-900 font-sans antialiased transition-colors duration-300;
   }
+}
+
+/* Elegant Dark Mode Core Overrides */
+.dark body {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+}
+
+.dark .bg-slate-100 {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+}
+
+.dark header {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark footer {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+  color: #9ca3af !important;
+}
+
+.dark .bg-white {
+  background-color: #111827 !important;
+  color: #f3f4f6 !important;
+  border-color: #1f2937 !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: #1f2937 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-slate-900 {
+  color: #f3f4f6 !important;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #9ca3af !important;
+}
+
+.dark .text-slate-400 {
+  color: #6b7280 !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-100,
+.dark .border-slate-200\/60 {
+  border-color: #1f2937 !important;
+}
+
+.dark .neu-flat {
+  background: #111827 !important;
+  box-shadow: 10px 10px 20px #030712, -10px -10px 20px #1f2937 !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.dark .neu-input {
+  background: #111827 !important;
+  box-shadow: inset 4px 4px 8px #030712, inset -4px -4px 8px #1f2937 !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .neu-button {
+  background: #111827 !important;
+  box-shadow: 5px 5px 10px #030712, -5px -5px 10px #1f2937 !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: #f3f4f6 !important;
+  
+  &:hover {
+    box-shadow: 2px 2px 5px #030712, -2px -2px 5px #1f2937 !important;
+  }
+}
+
+.dark select, 
+.dark textarea {
+  background-color: #1f2937 !important;
+  color: #f3f4f6 !important;
+  border-color: #374151 !important;
+}
+
+.dark input[type="text"],
+.dark input[type="email"],
+.dark input[type="password"],
+.dark input[type="datetime-local"],
+.dark input[type="number"],
+.dark input[type="url"] {
+  background-color: #1f2937 !important;
+  color: #f3f4f6 !important;
+  border-color: #374151 !important;
 }
 
 @keyframes pulse-slow {

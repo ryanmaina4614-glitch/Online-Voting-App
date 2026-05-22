@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, CheckSquare, Users, BarChart3, Settings, Shield, LogOut, Bell } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Users, BarChart3, Settings, Shield, LogOut, Bell, Sun, Moon } from 'lucide-react';
 import { motion } from 'motion/react';
 
 import { AppUser } from '../types';
@@ -8,13 +8,15 @@ import { UserRole } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
-  user?: AppUser;
+  user?: AppUser | null;
   onLogout?: () => void;
   activeElection?: string;
   onRoleChange?: (role: UserRole) => void;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
-export default function Layout({ children, user, onLogout, activeElection, onRoleChange }: LayoutProps) {
+export default function Layout({ children, user, onLogout, activeElection, onRoleChange, theme, onToggleTheme }: LayoutProps) {
   const initials = user?.displayName?.split(' ').map(n => n[0]).join('').substring(0, 2) || '??';
 
   return (
@@ -42,7 +44,7 @@ export default function Layout({ children, user, onLogout, activeElection, onRol
             <div className="hidden sm:flex flex-col items-end text-right">
               <span className="text-sm font-black text-slate-800">{user?.displayName}</span>
               <div className="flex items-center gap-1.5 mt-0.5 justify-end">
-                {user && (user.email === 'ryanmaina4614@gmail.com' || user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) && onRoleChange ? (
+                {user && (user.email === 'ryanmaina4614@gmail.com' || user.email === 'ryanmaina4613@gmail.com' || user.role === UserRole.ADMIN) && onRoleChange ? (
                   <select 
                     value={user.role} 
                     onChange={(e) => onRoleChange(e.target.value as UserRole)}
@@ -71,13 +73,26 @@ export default function Layout({ children, user, onLogout, activeElection, onRol
                 <span>{initials}</span>
               )}
             </div>
+            
+            {/* Dark / Light Theme Toggle element */}
+            <button 
+              type="button"
+              onClick={onToggleTheme}
+              className="flex items-center justify-center w-9 h-9 text-indigo-600 hover:text-indigo-800 dark:text-amber-400 dark:hover:text-amber-300 bg-slate-100 shadow-[3px_3px_6px_#cbd5e1,-3px_-3px_6px_#ffffff] dark:shadow-[3px_3px_6px_#030712,-3px_-3px_6px_#1f2937] active:shadow-[inset_2px_2px_4px_#cbd5e1,inset_-2px_-2px_4px_#ffffff] rounded-xl transition-all"
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              data-talkback={`Theme toggler. Current theme is ${theme}. Press to change theme.`}
+            >
+              {theme === 'dark' ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+            </button>
+
             {onLogout && (
               <button 
                 onClick={onLogout}
-                className="flex items-center justify-center w-9 h-9 text-slate-400 hover:text-red-500 bg-slate-100 shadow-[3px_3px_6px_#cbd5e1,-3px_-3px_6px_#ffffff] active:shadow-[inset_2px_2px_4px_#cbd5e1,inset_-2px_-2px_4px_#ffffff] rounded-xl transition-all"
+                className="flex items-center justify-center w-9 h-9 text-slate-405 hover:text-red-500 bg-slate-100 shadow-[3px_3px_6px_#cbd5e1,-3px_-3px_6px_#ffffff] dark:shadow-[3px_3px_6px_#030712,-3px_-3px_6px_#1f2937] active:shadow-[inset_2px_2px_4px_#cbd5e1,inset_-2px_-2px_4px_#ffffff] rounded-xl transition-all"
                 title="Logout"
+                data-talkback="Log out button. Press to secure logout of your session."
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4 text-slate-400" />
               </button>
             )}
           </div>

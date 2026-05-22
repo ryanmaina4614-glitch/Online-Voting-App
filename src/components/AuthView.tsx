@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckSquare, Shield, Lock, LogIn, UserPlus, Mail, Key, User, Calendar, BookOpen, Users, Camera, Upload } from 'lucide-react';
+import { CheckSquare, Shield, Lock, LogIn, UserPlus, Mail, Key, User, Calendar, BookOpen, Users, Camera, Upload, Fingerprint } from 'lucide-react';
 import { AppUser } from '../types';
+import { getBiometricProfiles, enrollBiometrics, BiometricProfile } from '../utils/biometrics';
+import BiometricScanner from './BiometricScanner';
 
 interface AuthViewProps {
   onGoogleLogin: () => void;
@@ -40,11 +42,17 @@ export default function AuthView({
   const [role, setRole] = useState<'voter' | 'manager'>(
     initialData?.role === 'manager' ? 'manager' : 'voter'
   );
+  const [talkbackEnabled, setTalkbackEnabled] = useState(initialData?.talkbackEnabled || false);
   const [passportFile, setPassportFile] = useState<File | null>(null);
   const [passportPreview, setPassportPreview] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  
+  // Biometric states
+  const [biometricEnrollOn, setBiometricEnrollOn] = useState(true);
+  const [showBiometricScanner, setShowBiometricScanner] = useState<boolean>(false);
+  const [biometricProfiles, setBiometricProfiles] = useState<BiometricProfile[]>(() => getBiometricProfiles());
   
   const handlePhotoFile = (file: File) => {
     setPassportFile(file);
@@ -56,6 +64,45 @@ export default function AuthView({
       setPassportPreview(reader.result as string);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleAutoFill = () => {
+    const maleNames = ['Brian Odhiambo', 'George Maina', 'Samuel Otieno', 'Daniel Toroitich', 'John Mwangi', 'Peter Kamau', 'David Ochieng', 'Nelson Okello', 'Joseph Gitahi'];
+    const femaleNames = ['Grace Wanjiku', 'Mary Njoki', 'Lilian Moraa', 'Aisha Hassan', 'Catherine Akinyi', 'Dorcas Adhiambo', 'Esther Anyango', 'Caroline Jeptoo', 'Purity Njeri'];
+    const selectedGender = Math.random() > 0.5 ? 'male' : 'female';
+    const names = selectedGender === 'male' ? maleNames : femaleNames;
+    const pickedName = names[Math.floor(Math.random() * names.length)];
+
+    setGender(selectedGender);
+    setDisplayName(pickedName);
+
+    const randomNum = Math.floor(100000 + Math.random() * 900000);
+    setStudentId(`STU-${randomNum}`);
+    setAge(Math.floor(18 + Math.random() * 6).toString());
+
+    const classes = ['Grade 11B', 'Class 12A', 'Form 4 North', 'Year 3 CompSci', 'Standard 8 West'];
+    setClassGroup(classes[Math.floor(Math.random() * classes.length)]);
+
+    // Pick a registered institution ID or use 'SCH-78214'
+    const institutions = ['SCH-78214', 'SCH-45928', 'SCH-96137', 'SCH-31459', 'SCH-62783'];
+    setInstitutionId(institutions[Math.floor(Math.random() * institutions.length)]);
+
+    // Beautiful representative portrait
+    const avatars = selectedGender === 'male' ? [
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80'
+    ] : [
+      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&auto=format&fit=crop&q=80'
+    ];
+    const pickedAvatar = avatars[Math.floor(Math.random() * avatars.length)];
+    setPassportPreview(pickedAvatar);
+    setPassportFile(null);
+
+    setError('');
+    setFieldErrors({});
   };
 
   const validateForm = () => {
@@ -74,14 +121,49 @@ export default function AuthView({
       if (!classGroup) errors.classGroup = 'Class/Group is required';
       if (!institutionId) errors.institutionId = 'Institution ID is required';
       
-      // Passport photo is strictly required for voters and managers during account registration (unless on complete profile with existing avatar)
-      if (!passportFile && !initialData?.passportPhotoUrl) {
+      // Passport photo check - satisfied if they either uploaded file, have existing URL, or selected an auto-filled URL
+      if (!passportFile && !initialData?.passportPhotoUrl && !passportPreview) {
         errors.passportFile = 'A passport-sized photograph is required for identity verification';
       }
     }
 
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const handleBiometricSuccess = async (profile?: BiometricProfile, decryptedPassword?: string) => {
+    setShowBiometricScanner(false);
+    if (mode === 'register') {
+      setError('');
+      try {
+        await onRegister({
+          email,
+          password,
+          displayName,
+          studentId,
+          age: Number(age),
+          gender,
+          classGroup,
+          institutionId,
+          passportFile,
+          passportPhotoUrl: passportPreview.startsWith('http') ? passportPreview : undefined,
+          role,
+          talkbackEnabled,
+        });
+      } catch (err: any) {
+        setError(err.message || 'Registration failed after biometric enrollment. Please try again.');
+      }
+      return;
+    }
+
+    if (profile && decryptedPassword) {
+      setError('');
+      try {
+        await onEmailLogin(profile.email, decryptedPassword);
+      } catch (err: any) {
+        setError(err.message || 'Biometric authentication failed. Please sign in normally.');
+      }
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,6 +176,11 @@ export default function AuthView({
       if (mode === 'login') {
         await onEmailLogin(email, password);
       } else if (mode === 'register') {
+        if (biometricEnrollOn) {
+          // Open scanner first to register the physical footprint pattern
+          setShowBiometricScanner(true);
+          return;
+        }
         await onRegister({
           email,
           password,
@@ -104,7 +191,9 @@ export default function AuthView({
           classGroup,
           institutionId,
           passportFile,
+          passportPhotoUrl: passportPreview.startsWith('http') ? passportPreview : undefined,
           role,
+          talkbackEnabled,
         });
       } else if (mode === 'complete-profile' && onUpdateProfile) {
         await onUpdateProfile({
@@ -115,7 +204,9 @@ export default function AuthView({
           classGroup,
           institutionId,
           passportFile,
+          passportPhotoUrl: passportPreview.startsWith('http') ? passportPreview : undefined,
           role,
+          talkbackEnabled,
         });
       }
     } catch (err: any) {
@@ -155,6 +246,21 @@ export default function AuthView({
         <form onSubmit={handleSubmit} className="w-full space-y-5">
           {(mode === 'register' || mode === 'complete-profile') && (
             <div className="space-y-4">
+              {/* Optional dynamic random profile generation */}
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-[2rem] flex flex-col items-center gap-2 text-center shadow-inner">
+                <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">🛠️ Fast Profile Helper</span>
+                <p className="text-[11px] font-semibold text-emerald-600 leading-snug">
+                  Skip manual typing & image uploads. Auto-generates full profile data with verified credentials.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAutoFill}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition duration-150 shadow-md active:scale-95 flex items-center gap-1.5"
+                >
+                  🎲 Auto-Fill Demo Info
+                </button>
+              </div>
+
               {/* Role Segment Selector */}
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-500 block ml-1">
@@ -447,6 +553,54 @@ export default function AuthView({
             </>
           )}
 
+          {mode === 'register' && (
+            <div className="flex items-start gap-3 p-4 bg-slate-200/50 border border-slate-300/20 rounded-2xl">
+              <input 
+                type="checkbox" 
+                id="biometricEnrollOn"
+                checked={biometricEnrollOn}
+                onChange={(e) => setBiometricEnrollOn(e.target.checked)}
+                className="mt-1 w-4.5 h-4.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+              />
+              <label htmlFor="biometricEnrollOn" className="text-[11px] font-bold text-slate-600 leading-snug cursor-pointer select-none">
+                🧬 Enroll Biometrics (TouchID / FaceID)
+                <span className="block text-[9px] font-semibold text-slate-400 mt-0.5">Enable secure 1-click biometric sign-in on this device</span>
+              </label>
+            </div>
+          )}
+
+          {(mode === 'register' || mode === 'complete-profile') && (
+            <div className="flex items-start gap-3 p-4 bg-indigo-50/50 border border-indigo-200/50 rounded-2xl text-left">
+              <input 
+                type="checkbox" 
+                id="talkbackEnabled"
+                checked={talkbackEnabled}
+                onChange={(e) => setTalkbackEnabled(e.target.checked)}
+                className="mt-1 w-4.5 h-4.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-550 cursor-pointer"
+              />
+              <label htmlFor="talkbackEnabled" className="text-[11px] font-extrabold text-slate-700 leading-snug cursor-pointer select-none">
+                🔊 Enable Voice Assistance (Talkback)
+                <span className="block text-[9px] font-semibold text-indigo-600/70 mt-0.5">Enables audio feedback, announcements, and hover narration for voters with visual impairments.</span>
+              </label>
+            </div>
+          )}
+
+          {mode === 'login' && biometricProfiles.length > 0 && (
+            <button 
+              type="button"
+              onClick={() => {
+                if (!email && biometricProfiles.length > 0) {
+                  setEmail(biometricProfiles[0].email);
+                }
+                setShowBiometricScanner(true);
+              }}
+              className="w-full py-4 bg-white hover:bg-slate-50 border-2 border-dashed border-indigo-200 hover:border-indigo-400 text-indigo-600 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
+            >
+              <Fingerprint className="w-5 h-5 text-indigo-500 animate-pulse" />
+              Sign In with Biometrics
+            </button>
+          )}
+
           <button 
             type="submit"
             disabled={loading}
@@ -561,6 +715,20 @@ export default function AuthView({
           </div>
         </div>
       </motion.div>
+
+      <AnimatePresence>
+        {showBiometricScanner && (
+          <BiometricScanner
+            mode={mode === 'register' ? 'enroll' : 'login'}
+            enrolledProfiles={biometricProfiles}
+            enrollEmail={email}
+            enrollPassword={password}
+            enrollDisplayName={displayName}
+            onCancel={() => setShowBiometricScanner(false)}
+            onSuccess={handleBiometricSuccess}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

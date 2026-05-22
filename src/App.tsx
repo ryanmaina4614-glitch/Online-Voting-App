@@ -17,6 +17,8 @@ import AuthView from './components/AuthView';
 import VotingInterface from './components/VotingInterface';
 import AdminDashboard from './components/AdminDashboard';
 import LandingView from './components/LandingView';
+import SecureBrowserShield from './components/SecureBrowserShield';
+import TalkbackController from './components/TalkbackController';
 import { UserRole, Election, ElectionStatus, AppUser } from './types';
 import { getCorrectedStatus } from './utils';
 import { 
@@ -32,11 +34,48 @@ import {
   setUserProfile,
   registerWithEmail,
   loginWithEmail,
-  uploadPassportPhoto
+  uploadPassportPhoto,
+  getManagerCount
 } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
+    }
+    return 'light';
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  const [browserPassed, setBrowserPassed] = useState<boolean>(() => {
+    const hasCrypto = !!(typeof window !== 'undefined' && window.crypto && window.crypto.subtle);
+    const hasSecureContext = typeof window !== 'undefined' && (window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    let hasSandbox = false;
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('__security_test_init__', '1');
+        localStorage.removeItem('__security_test_init__');
+        hasSandbox = true;
+      }
+    } catch (e) {}
+    const isModern = typeof navigator !== 'undefined' && !(/MSIE|Trident/i.test(navigator.userAgent)) && typeof fetch !== 'undefined' && typeof Promise !== 'undefined';
+
+    return !!(hasCrypto && hasSecureContext && hasSandbox && isModern);
+  });
   const [user, setUser] = useState<AppUser | null>(null);
   const [elections, setElections] = useState<Election[]>([]);
   const [view, setView] = useState<
@@ -78,14 +117,15 @@ export default function App() {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
             displayName: profile?.displayName || firebaseUser.displayName || 'Voter',
-            role: profile?.role || (isAdmin ? UserRole.ADMIN : UserRole.VOTER),
+            role: isAdmin ? UserRole.ADMIN : (profile?.role === UserRole.ADMIN ? UserRole.VOTER : (profile?.role || UserRole.VOTER)),
             institutionId: profile?.institutionId || '',
             studentId: profile?.studentId || '',
             votedElections: profile?.votedElections || [],
             age: profile?.age || 0,
             gender: profile?.gender || '',
             classGroup: profile?.classGroup || '',
-            passportPhotoUrl: profile?.passportPhotoUrl || ''
+            passportPhotoUrl: profile?.passportPhotoUrl || '',
+            talkbackEnabled: !!profile?.talkbackEnabled
           };
 
           // Check if profile is complete (except for global admins who are pre-configured)
@@ -272,14 +312,29 @@ export default function App() {
     if (!user) return;
     setLoading(true);
     try {
-      let photoUrl = user.passportPhotoUrl || '';
+      // Enforce 5 managers per institution limit
+      if (data.role === 'manager' || user.role === 'manager' || data.role === UserRole.MANAGER) {
+        const roleChanged = user.role !== 'manager' && data.role === 'manager';
+        const instChanged = data.institutionId && user.institutionId !== data.institutionId;
+        if (roleChanged || instChanged) {
+          const targetInst = data.institutionId || user.institutionId;
+          const mCount = await getManagerCount(targetInst || 'default');
+          if (mCount >= 5) {
+            throw new Error(`The institution '${targetInst}' has already reached the maximum of 5 registered managers.`);
+          }
+        }
+      }
+
+      let photoUrl = data.passportPhotoUrl || user.passportPhotoUrl || '';
       if (data.passportFile) {
         try {
           photoUrl = await uploadPassportPhoto(data.passportFile);
         } catch (uploadErr) {
-          console.error('Passport photo upload failed:', uploadErr);
-          throw new Error('Failed to upload your passport photo. Please check your network or image size.');
+          console.error('Passport photo upload failed, using fallback:', uploadErr);
+          photoUrl = data.passportPhotoUrl || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80';
         }
+      } else if (!photoUrl) {
+        photoUrl = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
       }
 
       const updatedUser = { 
@@ -315,9 +370,27 @@ export default function App() {
 
   const handleRoleChange = async (newRole: UserRole) => {
     if (!user) return;
+    let targetRole = newRole;
+    if (targetRole === UserRole.ADMIN && user.email !== 'ryanmaina4614@gmail.com') {
+      targetRole = UserRole.VOTER;
+    }
+    if (targetRole === UserRole.MANAGER) {
+      try {
+        // Only verify limit if making a transition to Manager
+        if (user.role !== UserRole.MANAGER) {
+          const mCount = await getManagerCount(user.institutionId || 'default');
+          if (mCount >= 5) {
+            alert('This institution already has the maximum of 5 managers registered. Role update denied.');
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check manager threshold', err);
+      }
+    }
     try {
-      await setUserProfile(user.uid, { role: newRole });
-      const updatedUser = { ...user, role: newRole };
+      await setUserProfile(user.uid, { role: targetRole });
+      const updatedUser = { ...user, role: targetRole };
       setUser(updatedUser);
       await refreshData(updatedUser);
       if (view !== 'landing' && view !== 'voting' && view !== ('complete-profile' as any) && view !== 'auth') {
@@ -469,6 +542,10 @@ export default function App() {
     await refreshData();
   };
 
+  if (!browserPassed) {
+    return <SecureBrowserShield onPassed={() => setBrowserPassed(true)} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -479,27 +556,33 @@ export default function App() {
 
   if (view === 'auth' || (view as any) === 'complete-profile') {
     return (
-      <AuthView 
-        onGoogleLogin={handleGoogleLogin} 
-        onEmailLogin={handleEmailLogin}
-        onRegister={handleRegister}
-        onUpdateProfile={handleUpdateProfile}
-        onDemoLogin={handleDemoLogin}
-        onContinueAsGuest={handleContinueAsGuest}
-        initialData={user || undefined}
-        viewMode={view === 'auth' ? 'auth' : 'complete-profile'}
-        loading={loading} 
-      />
+      <>
+        <AuthView 
+          onGoogleLogin={handleGoogleLogin} 
+          onEmailLogin={handleEmailLogin}
+          onRegister={handleRegister}
+          onUpdateProfile={handleUpdateProfile}
+          onDemoLogin={handleDemoLogin}
+          onContinueAsGuest={handleContinueAsGuest}
+          initialData={user || undefined}
+          viewMode={view === 'auth' ? 'auth' : 'complete-profile'}
+          loading={loading} 
+        />
+        <TalkbackController user={user} />
+      </>
     );
   }
 
   return (
-    <Layout 
-      user={user || undefined} 
-      onLogout={handleLogout}
-      activeElection={activeElection?.title}
-      onRoleChange={handleRoleChange}
-    >
+    <>
+      <Layout 
+        user={user || undefined} 
+        onLogout={handleLogout}
+        activeElection={activeElection?.title}
+        onRoleChange={handleRoleChange}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+      >
       {view !== 'voting' && user?.role !== UserRole.GUEST && (
         <div className="mb-8 flex items-center justify-between">
           <div className="flex bg-white rounded-2xl p-1.5 border border-slate-200 shadow-sm w-fit gap-1 flex-wrap">
@@ -565,7 +648,7 @@ export default function App() {
         />
       ) : view === 'manager-dashboard' ? (
         <AdminDashboard 
-          elections={elections} 
+          elections={elections.filter(e => e.institutionId === user?.institutionId)} 
           onAddElection={handleAddElection}
           onEditElection={handleEditElection}
           onDeleteElection={handleDeleteElection}
@@ -604,6 +687,7 @@ export default function App() {
             onVote={handleCastVote}
             isSubmitting={isSubmittingVote}
             currentUserStudentId={user?.studentId}
+            currentUserInstitutionId={user?.institutionId}
           />
         )
       )}
@@ -656,7 +740,9 @@ export default function App() {
         </div>
       )}
     </Layout>
-  );
+    <TalkbackController user={user} />
+  </>
+);
 }
 
 

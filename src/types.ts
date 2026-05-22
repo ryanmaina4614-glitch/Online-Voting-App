@@ -17,6 +17,10 @@ export interface Candidate {
   bio: string;
   photoUrl?: string;
   votesCount: number;
+  campaignText?: string;
+  campaignPicUrl?: string;
+  campaignAudioUrl?: string;
+  campaignVideoUrl?: string;
 }
 
 export interface Election {
@@ -32,6 +36,8 @@ export interface Election {
   totalVotes: number;
   creatorId: string;
   createdAt: string;
+  campaignStartDate?: string; // ISO string
+  campaignEndDate?: string; // ISO string
 }
 
 export interface VoteRecord {
@@ -70,4 +76,23 @@ export interface AppUser {
   classGroup: string;
   gender: string;
   passportPhotoUrl?: string;
+  talkbackEnabled?: boolean;
 }
+
+export interface Institution {
+  id: string; // e.g. "SCH-78214"
+  name: string; // Greenfield High School
+  location: string; // Nairobi
+  imageUrl?: string; // Optional logo/image
+  createdAt?: string;
+}
+
+export interface BiometricActivityLog {
+  id?: string;
+  email: string;
+  displayName: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  timestamp: string; // ISO String
+}
+
