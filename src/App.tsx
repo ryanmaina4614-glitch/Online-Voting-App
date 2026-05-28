@@ -10,7 +10,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, Printer } from 'lucide-react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import AuthView from './components/AuthView';
@@ -21,6 +21,7 @@ import SecureBrowserShield from './components/SecureBrowserShield';
 import TalkbackController from './components/TalkbackController';
 import { UserRole, Election, ElectionStatus, AppUser } from './types';
 import { getCorrectedStatus } from './utils';
+import { generateReceiptPDF } from './utils/pdfGenerator';
 import { 
   getFirebase, 
   loginWithGoogle, 
@@ -92,6 +93,9 @@ export default function App() {
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
   const [lastVoteReceipt, setLastVoteReceipt] = useState<string | null>(null);
   const [showReceiptBanner, setShowReceiptBanner] = useState(false);
+  const [lastVotedCandidateName, setLastVotedCandidateName] = useState<string>('');
+  const [lastVotedElectionTitle, setLastVotedElectionTitle] = useState<string>('');
+  const [lastVotedTimestamp, setLastVotedTimestamp] = useState<string>('');
   const [selectedElectionId, setSelectedElectionId] = useState<string | null>(null);
   const isRegisteringRef = React.useRef(false);
 
@@ -111,7 +115,7 @@ export default function App() {
         if (firebaseUser) {
           const profile = await getUserProfile(firebaseUser.uid);
           
-          const isAdmin = firebaseUser.email === 'ryanmaina4614@gmail.com'; 
+          const isAdmin = firebaseUser.email === 'ryanmaina4614@gmail.com' || firebaseUser.email === 'ryanmaina4613@gmail.com'; 
           
           const userData: AppUser = {
             uid: firebaseUser.uid,
@@ -371,7 +375,7 @@ export default function App() {
   const handleRoleChange = async (newRole: UserRole) => {
     if (!user) return;
     let targetRole = newRole;
-    if (targetRole === UserRole.ADMIN && user.email !== 'ryanmaina4614@gmail.com') {
+    if (targetRole === UserRole.ADMIN && user.email !== 'ryanmaina4614@gmail.com' && user.email !== 'ryanmaina4613@gmail.com') {
       targetRole = UserRole.VOTER;
     }
     if (targetRole === UserRole.MANAGER) {
@@ -517,6 +521,12 @@ export default function App() {
           votedElections: [...user.votedElections, activeElection.id]
         });
       }
+      
+      const candidateObj = activeElection.candidates.find(c => c.id === candidateId);
+      setLastVotedCandidateName(candidateObj ? candidateObj.name : 'Unknown Candidate');
+      setLastVotedElectionTitle(activeElection.title);
+      setLastVotedTimestamp(new Date().toUTCString());
+
       setLastVoteReceipt(voterReceipt);
       setShowReceiptBanner(true);
       setView('voter-dashboard');
@@ -525,6 +535,17 @@ export default function App() {
     } finally {
       setIsSubmittingVote(false);
     }
+  };
+
+  const handleDownloadPDF = () => {
+    if (!lastVoteReceipt) return;
+    generateReceiptPDF({
+      receiptCode: lastVoteReceipt,
+      timestamp: lastVotedTimestamp || new Date().toUTCString(),
+      electionTitle: lastVotedElectionTitle || 'Institutional Ballot Election',
+      candidateName: lastVotedCandidateName,
+      institutionId: user?.institutionId || 'VoteSecure Member'
+    });
   };
 
   const handleAddElection = async (data: Partial<Election>) => {
@@ -562,7 +583,6 @@ export default function App() {
           onEmailLogin={handleEmailLogin}
           onRegister={handleRegister}
           onUpdateProfile={handleUpdateProfile}
-          onDemoLogin={handleDemoLogin}
           onContinueAsGuest={handleContinueAsGuest}
           initialData={user || undefined}
           viewMode={view === 'auth' ? 'auth' : 'complete-profile'}
@@ -711,7 +731,7 @@ export default function App() {
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
                 Your Zero-Knowledge Receipt ID
               </span>
-              <span className="font-mono text-xs inline-block font-black text-slate-700 bg-white px-3 py-1.5 border border-slate-100 rounded-xl max-w-full overflow-x-auto select-all">
+              <span className="font-mono text-xs inline-block font-black text-slate-700 bg-white px-3 py-1.5 border border-slate-100 rounded-xl max-w-full overflow-x-auto select-all animate-pulse">
                 {lastVoteReceipt}
               </span>
               <p className="text-[10px] text-slate-400 font-bold mt-2">
@@ -719,22 +739,31 @@ export default function App() {
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-3">
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(lastVoteReceipt);
-                  alert('Receipt ID copied!');
-                }}
-                className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl text-xs hover:bg-slate-200 transition-colors"
+                onClick={handleDownloadPDF}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl text-xs uppercase tracking-wider transition-all scale-100 hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 shadow-lg shadow-emerald-100/40 cursor-pointer"
               >
-                Copy Receipt
+                <Printer className="w-4 h-4 animate-bounce" /> Download Printable PDF Receipt
               </button>
-              <button
-                onClick={() => setShowReceiptBanner(false)}
-                className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-2xl text-xs hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
-              >
-                Close Portal
-              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(lastVoteReceipt);
+                    alert('Receipt ID copied!');
+                  }}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl text-xs hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  Copy Receipt
+                </button>
+                <button
+                  onClick={() => setShowReceiptBanner(false)}
+                  className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-2xl text-xs hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100 cursor-pointer"
+                >
+                  Close Portal
+                </button>
+              </div>
             </div>
           </motion.div>
         </div>

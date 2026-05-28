@@ -1380,8 +1380,14 @@ export default function AdminDashboard({ elections, onAddElection, onEditElectio
                                     <Check className="w-2.5 h-2.5" /> Match
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-black text-amber-400 uppercase bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded-md animate-pulse">
+                                  <span className="relative group cursor-help inline-flex items-center gap-1 text-[9px] font-black text-amber-400 uppercase bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded-md animate-pulse">
                                     <ShieldAlert className="w-2.5 h-2.5" /> Mismatch
+                                    
+                                    {/* Tooltip representing exact mismatch discrepancy */}
+                                    <span className="absolute bottom-full mb-2 right-0 bg-slate-950 text-slate-200 font-sans font-bold text-[10px] py-1.5 px-2.5 rounded-lg border border-slate-750 shadow-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-200 z-50 normal-case translate-y-1 group-hover:translate-y-0 whitespace-nowrap">
+                                      <span className="text-amber-400 font-black mr-1">{Math.abs(cand.votesCount - anonCount)}</span> 
+                                      {Math.abs(cand.votesCount - anonCount) === 1 ? 'vote mismatch' : 'votes mismatch'}
+                                    </span>
                                   </span>
                                 )}
                               </span>

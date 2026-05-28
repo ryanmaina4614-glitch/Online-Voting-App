@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, Accessibility, X } from 'lucide-react';
 import { AppUser } from '../types';
 
 interface TalkbackControllerProps {
@@ -7,7 +7,14 @@ interface TalkbackControllerProps {
 }
 
 export default function TalkbackController({ user }: TalkbackControllerProps) {
-  const isEnabled = !!user?.talkbackEnabled;
+  const [guestTalkbackEnabled, setGuestTalkbackEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('guest_talkback') === 'true';
+    }
+    return false;
+  });
+
+  const isEnabled = !!user?.talkbackEnabled || guestTalkbackEnabled;
   const [muted, setMuted] = useState(false);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const lastSpokenRef = useRef<string>('');
@@ -115,28 +122,79 @@ export default function TalkbackController({ user }: TalkbackControllerProps) {
     };
   }, [isEnabled, user, muted]);
 
-  if (!isEnabled) return null;
+  const toggleGuestTalkback = (enable: boolean) => {
+    setGuestTalkbackEnabled(enable);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('guest_talkback', String(enable));
+    }
+    if (enable) {
+      if (synthRef.current) {
+        synthRef.current.cancel();
+      }
+      setTimeout(() => {
+        const text = `Voice guidance activated. Move mouse or press Tab to hear instructions.`;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.volume = speechVolume;
+        synthRef.current?.speak(utterance);
+      }, 150);
+    } else {
+      if (synthRef.current) {
+        synthRef.current.cancel();
+      }
+    }
+  };
+
+  // Render minimal accessibility activator button if talkback is disabled
+  if (!isEnabled) {
+    return (
+      <div className="fixed bottom-6 right-6 z-[100] group">
+        <button
+          type="button"
+          onClick={() => toggleGuestTalkback(true)}
+          className="w-12 h-12 bg-slate-900 hover:bg-indigo-600 text-slate-100 hover:text-white rounded-full flex items-center justify-center shadow-xl border-2 border-slate-800 hover:border-white/50 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 cursor-pointer"
+          title="Enable Assistive Audio Guide (Talkback)"
+        >
+          <Accessibility className="w-5 h-5 animate-pulse" />
+        </button>
+        <div className="absolute right-14 bottom-1/2 translate-y-1/2 bg-slate-950 text-slate-200 text-[10px] font-black tracking-wide py-1.5 px-3 rounded-lg border border-slate-800 shadow-xl opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-250 whitespace-nowrap pointer-events-none">
+          🔊 Accessibility / Voice Guide
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 bg-indigo-650 hover:bg-indigo-700 text-white rounded-full py-2.5 px-4 shadow-2xl flex-nowrap border-2 border-white/80 transition-all select-none">
-      <div className="flex flex-col items-start">
-        <span className="text-[10px] font-black tracking-widest uppercase">🎙️ Talkback Companion</span>
-        <span className="text-[8px] font-bold text-indigo-200">Voice Assistance Mode Active</span>
+    <div className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 bg-indigo-650 hover:bg-indigo-700 text-white rounded-full py-2 px-4 shadow-2xl flex-nowrap border-2 border-white/85 transition-all select-none">
+      <div className="flex flex-col items-start leading-none mr-1">
+        <span className="text-[9px] font-black tracking-wider uppercase">🎙️ Talkback Active</span>
+        <span className="text-[7.5px] font-bold text-indigo-200">Voice Assistant Mode</span>
       </div>
       
-      <button 
-        type="button"
-        onClick={() => {
-          setMuted(!muted);
-          if (synthRef.current) {
-            synthRef.current.cancel();
-          }
-        }}
-        className="p-1.5 hover:bg-white/20 rounded-full transition-colors outline-none focus:ring-2 focus:ring-white"
-        title={muted ? 'Unmute assistance' : 'Mute assistance'}
-      >
-        {muted ? <VolumeX className="w-4 h-4 text-red-300" /> : <Volume2 className="w-4 h-4 text-emerald-300" />}
-      </button>
+      <div className="flex items-center gap-1.5 border-l border-white/25 pl-2.5">
+        <button 
+          type="button"
+          onClick={() => {
+            setMuted(!muted);
+            if (synthRef.current) {
+              synthRef.current.cancel();
+            }
+          }}
+          className="p-1 hover:bg-white/15 rounded-full transition-colors outline-none focus:ring-2 focus:ring-white"
+          title={muted ? 'Unmute voice' : 'Mute voice'}
+        >
+          {muted ? <VolumeX className="w-4 h-4 text-red-350" /> : <Volume2 className="w-4 h-4 text-emerald-300" />}
+        </button>
+
+        <button 
+          type="button"
+          onClick={() => toggleGuestTalkback(false)}
+          className="p-1 hover:bg-white/15 rounded-full transition-colors outline-none focus:ring-2 focus:ring-white"
+          title="Turn Off Voice Guide"
+        >
+          <X className="w-3.5 h-3.5 text-slate-300 hover:text-white" />
+        </button>
+      </div>
     </div>
   );
 }

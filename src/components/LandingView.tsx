@@ -4,6 +4,7 @@ import {
   ShieldCheck, Quote, Scale, BookOpen, CheckCircle, AlertTriangle, 
   HelpCircle, ArrowRight, Check, Sparkles, UserCheck, Lock, Fingerprint 
 } from 'lucide-react';
+import { useI18n } from '../utils/i18n';
 
 interface LandingViewProps {
   onEnterDashboard: () => void;
@@ -73,6 +74,7 @@ const REGULATIONS = [
 ];
 
 export default function LandingView({ onEnterDashboard, userDisplayName, institutionId, isGuest }: LandingViewProps) {
+  const { t } = useI18n();
   const [selectedQuoteIndex, setSelectedQuoteIndex] = useState(0);
   const [acknowledgedRules, setAcknowledgedRules] = useState<Record<string, boolean>>({});
   const [showQuoteTip, setShowQuoteTip] = useState(true);
@@ -139,10 +141,10 @@ export default function LandingView({ onEnterDashboard, userDisplayName, institu
             </div>
             
             <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-none">
-              Inspiration & <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-emerald-200">Regulations Portal</span>
+              Inspiration & <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-emerald-200">{t('regulationsTitle')}</span>
             </h2>
             <p className="text-slate-300 font-medium text-sm md:text-base max-w-2xl leading-relaxed">
-              Welcome, <span className="text-indigo-200 font-bold">{userDisplayName || 'Voter'}</span>. You have entered the official democratic checkpoint of <span className="text-emerald-400 font-bold">{institutionId || 'your institution'}</span>. Review the foundational codes of integrity below to unlock your active polling dashboard.
+              {t('welcomeUser', { name: userDisplayName || 'Voter' })} {t('institutionCheckpoint', { institution: institutionId || 'your institution' })}
             </p>
           </div>
 
@@ -333,7 +335,7 @@ export default function LandingView({ onEnterDashboard, userDisplayName, institu
                   <span className={`text-xs font-black block ${allRulesAcknowledged ? 'text-emerald-700' : 'text-slate-500'}`}>
                     {allRulesAcknowledged 
                       ? 'Integrity Verified' 
-                      : `Acknowledge (${Object.values(acknowledgedRules).filter(Boolean).length}/4) rules`
+                      : `${t('regulationsTitle')} (${Object.values(acknowledgedRules).filter(Boolean).length}/4)`
                     }
                   </span>
                 </div>
@@ -348,7 +350,7 @@ export default function LandingView({ onEnterDashboard, userDisplayName, institu
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300 shadow-inner'
                 }`}
               >
-                {isGuest ? 'Sign In / Register to Vote' : 'Proceed to Ballot Center'} <ArrowRight className="w-4 h-4" />
+                {t('enterDashboard')} <ArrowRight className="w-4 h-4" />
               </button>
             </div>
 

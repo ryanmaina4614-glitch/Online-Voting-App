@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckSquare, Shield, Lock, LogIn, UserPlus, Mail, Key, User, Calendar, BookOpen, Users, Camera, Upload, Fingerprint } from 'lucide-react';
 import { AppUser } from '../types';
+import { useI18n } from '../utils/i18n';
+// @ts-ignore
+import logoImg from '../assets/images/votesecure_ballot_logo_1779949386444.png';
 import { getBiometricProfiles, enrollBiometrics, BiometricProfile } from '../utils/biometrics';
 import BiometricScanner from './BiometricScanner';
 
@@ -10,7 +13,6 @@ interface AuthViewProps {
   onEmailLogin: (email: string, pass: string) => Promise<void>;
   onRegister: (data: any) => Promise<void>;
   onUpdateProfile?: (data: any) => Promise<void>;
-  onDemoLogin?: (role: 'manager' | 'voter') => Promise<void>;
   onContinueAsGuest?: () => void;
   initialData?: Partial<AppUser>;
   viewMode?: 'auth' | 'complete-profile';
@@ -22,13 +24,14 @@ export default function AuthView({
   onEmailLogin, 
   onRegister, 
   onUpdateProfile,
-  onDemoLogin,
   onContinueAsGuest,
   initialData,
   viewMode = 'auth',
   loading 
 }: AuthViewProps) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<'login' | 'register' | 'complete-profile'>(
+
     viewMode === 'complete-profile' ? 'complete-profile' : 'login'
   );
   const [email, setEmail] = useState(initialData?.email || '');
@@ -42,7 +45,11 @@ export default function AuthView({
   const [role, setRole] = useState<'voter' | 'manager'>(
     initialData?.role === 'manager' ? 'manager' : 'voter'
   );
-  const [talkbackEnabled, setTalkbackEnabled] = useState(initialData?.talkbackEnabled || false);
+  const [talkbackEnabled, setTalkbackEnabled] = useState(
+    initialData?.talkbackEnabled || 
+    (typeof window !== 'undefined' && localStorage.getItem('guest_talkback') === 'true') || 
+    false
+  );
   const [passportFile, setPassportFile] = useState<File | null>(null);
   const [passportPreview, setPassportPreview] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
@@ -66,44 +73,6 @@ export default function AuthView({
     reader.readAsDataURL(file);
   };
 
-  const handleAutoFill = () => {
-    const maleNames = ['Brian Odhiambo', 'George Maina', 'Samuel Otieno', 'Daniel Toroitich', 'John Mwangi', 'Peter Kamau', 'David Ochieng', 'Nelson Okello', 'Joseph Gitahi'];
-    const femaleNames = ['Grace Wanjiku', 'Mary Njoki', 'Lilian Moraa', 'Aisha Hassan', 'Catherine Akinyi', 'Dorcas Adhiambo', 'Esther Anyango', 'Caroline Jeptoo', 'Purity Njeri'];
-    const selectedGender = Math.random() > 0.5 ? 'male' : 'female';
-    const names = selectedGender === 'male' ? maleNames : femaleNames;
-    const pickedName = names[Math.floor(Math.random() * names.length)];
-
-    setGender(selectedGender);
-    setDisplayName(pickedName);
-
-    const randomNum = Math.floor(100000 + Math.random() * 900000);
-    setStudentId(`STU-${randomNum}`);
-    setAge(Math.floor(18 + Math.random() * 6).toString());
-
-    const classes = ['Grade 11B', 'Class 12A', 'Form 4 North', 'Year 3 CompSci', 'Standard 8 West'];
-    setClassGroup(classes[Math.floor(Math.random() * classes.length)]);
-
-    // Pick a registered institution ID or use 'SCH-78214'
-    const institutions = ['SCH-78214', 'SCH-45928', 'SCH-96137', 'SCH-31459', 'SCH-62783'];
-    setInstitutionId(institutions[Math.floor(Math.random() * institutions.length)]);
-
-    // Beautiful representative portrait
-    const avatars = selectedGender === 'male' ? [
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80'
-    ] : [
-      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&auto=format&fit=crop&q=80'
-    ];
-    const pickedAvatar = avatars[Math.floor(Math.random() * avatars.length)];
-    setPassportPreview(pickedAvatar);
-    setPassportFile(null);
-
-    setError('');
-    setFieldErrors({});
-  };
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -221,19 +190,24 @@ export default function AuthView({
         animate={{ opacity: 1, y: 0 }}
         className="max-w-md w-full bg-slate-100 rounded-[3rem] shadow-[16px_16px_32px_#cbd5e1,-16px_-16px_32px_#ffffff] border-4 border-white/60 p-8 md:p-10 flex flex-col items-center"
       >
-        <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center shadow-[6px_6px_12px_#cbd5e1,-6px_-6px_12px_#ffffff] mb-6 transform -rotate-3 border border-white">
-          <CheckSquare className="w-8 h-8 text-indigo-600" />
+        <div className="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center shadow-[6px_6px_12px_#cbd5e1,-6px_-6px_12px_#ffffff] mb-6 transform -rotate-3 border border-white overflow-hidden p-2">
+          <img 
+            src={logoImg} 
+            alt="VoteSecure Logo" 
+            className="w-full h-full object-contain"
+            referrerPolicy="no-referrer"
+          />
         </div>
         
         <h2 className="text-3xl font-display font-black text-slate-800 tracking-tight mb-2">
-          {mode === 'login' ? 'Welcome Back' : mode === 'register' ? 'Join VoteSecure' : 'Complete Your Profile'}
+          {mode === 'login' ? t('welcomeCheckpoint') : mode === 'register' ? t('register') : t('entranceCheckpoint')}
         </h2>
         <p className="text-slate-500 font-extrabold mb-8 leading-relaxed text-[11px] text-center uppercase tracking-widest bg-slate-200/50 px-3.5 py-1 rounded-full border border-slate-300/30">
           {mode === 'login' 
-            ? 'Access your secure, anonymous voting dashboard.' 
+            ? t('tagline') 
             : mode === 'register'
-            ? 'Register your details to participate in school elections.'
-            : 'Please provide the missing details to access the system.'}
+            ? t('register')
+            : t('entranceCheckpoint')}
         </p>
 
         {error && (
@@ -246,21 +220,6 @@ export default function AuthView({
         <form onSubmit={handleSubmit} className="w-full space-y-5">
           {(mode === 'register' || mode === 'complete-profile') && (
             <div className="space-y-4">
-              {/* Optional dynamic random profile generation */}
-              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-[2rem] flex flex-col items-center gap-2 text-center shadow-inner">
-                <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">🛠️ Fast Profile Helper</span>
-                <p className="text-[11px] font-semibold text-emerald-600 leading-snug">
-                  Skip manual typing & image uploads. Auto-generates full profile data with verified credentials.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleAutoFill}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition duration-150 shadow-md active:scale-95 flex items-center gap-1.5"
-                >
-                  🎲 Auto-Fill Demo Info
-                </button>
-              </div>
-
               {/* Role Segment Selector */}
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-500 block ml-1">
@@ -296,7 +255,7 @@ export default function AuthView({
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input 
                   type="text"
-                  placeholder="Full Name"
+                  placeholder={t('fullname')}
                   required
                   value={displayName}
                   onChange={(e) => {
@@ -317,7 +276,7 @@ export default function AuthView({
                 <Shield className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input 
                   type="text" 
-                  placeholder="Student / Member ID"
+                  placeholder={t('studentId')}
                   required
                   value={studentId}
                   onChange={(e) => {
@@ -361,18 +320,18 @@ export default function AuthView({
                   <select 
                     value={gender}
                     onChange={(e) => {
-                      setGender(e.target.value);
-                      if (fieldErrors.gender) setFieldErrors(prev => ({ ...prev, gender: '' }));
+                       setGender(e.target.value);
+                       if (fieldErrors.gender) setFieldErrors(prev => ({ ...prev, gender: '' }));
                     }}
                     required
                     className={`w-full pl-10 pr-4 py-3.5 neu-input rounded-xl font-black focus:outline-none focus:border-indigo-600 transition-all text-sm appearance-none ${
-                      fieldErrors.gender ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
+                       fieldErrors.gender ? 'border-red-500' : 'border-slate-200/40 focus:border-indigo-600'
                     }`}
                   >
-                    <option value="">Gender</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="other">Other</option>
+                    <option value="">{t('gender')}</option>
+                    <option value="male">{t('male')}</option>
+                    <option value="female">{t('female')}</option>
+                    <option value="other">{t('other')}</option>
                   </select>
                   {fieldErrors.gender && (
                     <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider ml-1 mt-1 block">
@@ -385,7 +344,7 @@ export default function AuthView({
                 <BookOpen className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input 
                   type="text"
-                  placeholder="Class / Group (e.g. Grade 11A)"
+                  placeholder={t('classGroup')}
                   required
                   value={classGroup}
                   onChange={(e) => {
@@ -406,7 +365,7 @@ export default function AuthView({
                 <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input 
                   type="text"
-                  placeholder="Institution ID (e.g. School A)"
+                  placeholder={t('institutionId')}
                   required
                   value={institutionId}
                   onChange={(e) => {
@@ -428,7 +387,7 @@ export default function AuthView({
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-500 block ml-1 flex items-center gap-1.5">
                   <Camera className="w-4 h-4 text-indigo-600 animate-pulse" />
-                  Upload Passport Photo <span className="text-red-500">*</span>
+                  {t('passportPhoto')} <span className="text-red-500">*</span>
                 </label>
 
                 <div 
@@ -511,7 +470,7 @@ export default function AuthView({
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input 
                   type="email"
-                  placeholder="Email Address"
+                  placeholder={t('emailAddress')}
                   required
                   value={email}
                   onChange={(e) => {
@@ -597,7 +556,7 @@ export default function AuthView({
               className="w-full py-4 bg-white hover:bg-slate-50 border-2 border-dashed border-indigo-200 hover:border-indigo-400 text-indigo-600 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
             >
               <Fingerprint className="w-5 h-5 text-indigo-500 animate-pulse" />
-              Sign In with Biometrics
+              {t('fingerprintLogin')}
             </button>
           )}
 
@@ -611,7 +570,7 @@ export default function AuthView({
             ) : (
               mode === 'login' ? <LogIn className="w-5 h-5" /> : mode === 'register' ? <UserPlus className="w-5 h-5" /> : <Lock className="w-5 h-5" />
             )}
-            {mode === 'login' ? 'Sign In' : mode === 'register' ? 'Register Account' : 'Update Profile'}
+            {mode === 'login' ? t('signIn') : mode === 'register' ? t('register') : t('entranceCheckpoint')}
           </button>
         </form>
 
@@ -622,7 +581,7 @@ export default function AuthView({
                 <div className="w-full border-t border-slate-200/60"></div>
               </div>
               <div className="relative flex justify-center text-xs font-black uppercase tracking-widest text-slate-400">
-                <span className="px-4 bg-slate-100">Or continue with</span>
+                <span className="px-4 bg-slate-100">{t('orWith')}</span>
               </div>
             </div>
 
@@ -635,37 +594,7 @@ export default function AuthView({
               Google Account
             </button>
 
-            {onDemoLogin && (
-              <>
-                <div className="relative w-full my-8">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-slate-200/60"></div>
-                  </div>
-                  <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-indigo-500">
-                    <span className="px-4 bg-slate-100 flex items-center gap-1.5 font-extrabold text-[9px]">Fast-Track Lab Portals</span>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4 w-full">
-                  <button 
-                    type="button"
-                    onClick={() => onDemoLogin('manager')}
-                    disabled={loading}
-                    className="py-3.5 px-3 rounded-2xl font-black text-[11px] uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 shadow-[4px_4px_10px_#cbd5e1,-4px_-4px_10px_#ffffff] disabled:opacity-50"
-                  >
-                    <Shield className="w-4 h-4 shrink-0" /> Manager Portal
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => onDemoLogin('voter')}
-                    disabled={loading}
-                    className="py-3.5 px-3 rounded-2xl font-black text-[11px] uppercase tracking-wider text-slate-700 hover:text-indigo-600 neu-button active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  >
-                    <User className="w-4 h-4 shrink-0" /> Voter Portal
-                  </button>
-                </div>
-              </>
-            )}
 
             {onContinueAsGuest && (
               <>
@@ -674,7 +603,7 @@ export default function AuthView({
                     <div className="w-full border-t border-slate-200/60"></div>
                   </div>
                   <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                    <span className="px-4 bg-slate-100 flex items-center gap-1 font-extrabold text-[9px]">📖 Guest Access</span>
+                    <span className="px-4 bg-slate-100 flex items-center gap-1 font-extrabold text-[9px]">📖 {t('roleGuest')}</span>
                   </div>
                 </div>
 
@@ -684,13 +613,13 @@ export default function AuthView({
                   disabled={loading}
                   className="w-full py-4 px-6 rounded-2xl font-black text-xs uppercase tracking-wider text-slate-700 hover:text-emerald-600 neu-button active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                 >
-                  <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" /> Explore Regulations as Guest
+                  <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" /> {t('continueAsGuest')}
                 </button>
               </>
             )}
 
             <p className="mt-8 text-sm font-extrabold text-slate-500">
-              {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
+              {mode === 'login' ? t('needAccount') : t('alreadyRegistered')}{' '}
               <button 
                 onClick={() => {
                   setMode(mode === 'login' ? 'register' : 'login');
@@ -698,7 +627,7 @@ export default function AuthView({
                 }}
                 className="text-indigo-600 hover:underline font-black"
               >
-                {mode === 'login' ? 'Register Now' : 'Sign In'}
+                {mode === 'login' ? t('signUpNow') : t('signInNow')}
               </button>
             </p>
           </>

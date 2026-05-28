@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Election, Candidate, ElectionStatus, AppUser, UserRole } from '../types';
 import { addElectionToCalendar, checkElectionInCalendar, removeElectionFromCalendar } from '../services/calendar';
+import { useI18n } from '../utils/i18n';
 
 interface DashboardProps {
   elections: Election[];
@@ -17,6 +18,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ elections, onVoteClick, user, isAdmin }: DashboardProps) {
+  const { t } = useI18n();
   // If no elections exist, show empty state
   if (!elections || elections.length === 0) {
     return (
@@ -24,8 +26,8 @@ export default function Dashboard({ elections, onVoteClick, user, isAdmin }: Das
         <div className="p-6 bg-indigo-50 text-indigo-600 rounded-3xl mb-6 shadow-md shadow-indigo-100/50 animate-pulse">
           <Zap className="w-12 h-12" />
         </div>
-        <h2 className="text-3xl font-black text-slate-800 mb-2 font-sans tracking-tight">No Active Ballot Records</h2>
-        <p className="text-slate-500 max-w-md font-medium">There are currently no institutional elections registered. Contact your school administrator to configure ballots.</p>
+        <h2 className="text-3xl font-black text-slate-800 mb-2 font-sans tracking-tight">{t('noActiveBallots')}</h2>
+        <p className="text-slate-500 max-w-md font-medium">{t('noActiveBallotsDesc')}</p>
       </div>
     );
   }

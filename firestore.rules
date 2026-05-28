@@ -15,7 +15,7 @@ service cloud.firestore {
     }
     function isAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email == 'ryanmaina4614@gmail.com') && request.auth.token.email_verified == true
+        (request.auth.token.email == 'ryanmaina4614@gmail.com' || request.auth.token.email == 'ryanmaina4613@gmail.com') && request.auth.token.email_verified == true
       );
     }
     function isManager() {
@@ -61,12 +61,12 @@ service cloud.firestore {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin() || (isManager() && resource.data.institutionId == getUserInstitution());
       allow create: if isOwner(userId) && isValidUser(incoming()) && 
-                    (incoming().role == 'voter' || incoming().role == 'manager' || (incoming().role == 'admin' && (request.auth.token.email == 'ryanmaina4614@gmail.com')));
+                    (incoming().role == 'voter' || incoming().role == 'manager' || (incoming().role == 'admin' && (request.auth.token.email == 'ryanmaina4614@gmail.com' || request.auth.token.email == 'ryanmaina4613@gmail.com')));
       allow update: if (isAdmin() && isValidUser(incoming())) ||
                     (isOwner(userId) && isValidUser(incoming()) && 
                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'votedElections', 'age', 'gender', 'classGroup', 'studentId', 'passportPhotoUrl', 'institutionId', 'role', 'uid', 'email', 'talkbackEnabled']) &&
                      (existing().get('institutionId', '') == '' || existing().get('institutionId', '') == 'default' || incoming().institutionId == existing().get('institutionId', '')) &&
-                     (incoming().role != 'admin' || request.auth.token.email == 'ryanmaina4614@gmail.com'));
+                     (incoming().role != 'admin' || request.auth.token.email == 'ryanmaina4614@gmail.com' || request.auth.token.email == 'ryanmaina4613@gmail.com'));
     }
 
     // 2. Elections Collection

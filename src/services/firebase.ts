@@ -269,7 +269,7 @@ export async function registerWithEmail(userData: any): Promise<AppUser> {
     }
   }
 
-  const isAdmin = email === 'ryanmaina4614@gmail.com';
+  const isAdmin = email === 'ryanmaina4614@gmail.com' || email === 'ryanmaina4613@gmail.com';
   
   if (isAdmin && db) {
     await setDoc(doc(db, 'admins', user.uid), { email, role: 'admin' });
